@@ -1,0 +1,295 @@
+<ResourceDictionary x:Class="SmartCalFrames.Templates.SmartCalDataTemplates"
+                    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:opts="clr-namespace:SmartCalFrames.Options"
+                    xmlns:dock="clr-namespace:SmartCalFrames.Dockable"
+                    xmlns:seq="clr-namespace:SmartCalFrames.Sequencer"
+                    xmlns:util="clr-namespace:SmartCalFrames.Utility"
+                    xmlns:nina="clr-namespace:NINA.View.Sequencer;assembly=NINA.Sequencer"
+                    xmlns:mini="clr-namespace:NINA.View.Sequencer.MiniSequencer;assembly=NINA.Sequencer"
+                    xmlns:ninacore="clr-namespace:NINA.Core.Utility;assembly=NINA.Core"
+                    xmlns:ninactrl="clr-namespace:NINA.CustomControlLibrary;assembly=NINA.CustomControlLibrary">
+
+    <!--
+      Key naming here follows the NINA plugin template convention:
+        "<PluginName>_Options"                for the Options -> Plugins page
+        "<FullyQualifiedType>_Mini"            for the compact "Mini Sequencer" widget
+        "<FullyQualifiedType>_Dockable"        for an imaging-tab dockable panel
+      Get any of these three keys wrong and the corresponding NINA surface
+      silently falls back to a default/blank template instead of throwing -
+      if the options page or sequence item shows up blank, check these keys
+      first.
+
+      ROUND 41 CORRECTION - the comment above previously (and wrongly) called
+      "_Mini" the key for "the compact sequencer editor row", i.e. the item's
+      appearance when placed in the actual Advanced Sequencer tree. That is
+      NOT what "_Mini" is for. Confirmed against the same real, published,
+      working reference plugin cited elsewhere in this comment (SkyFlats by
+      photon1503, SkyflatsSequenceItems/SkyflatsTemplates.xaml) plus
+      NINA.Sequencer.dll's own type metadata: there are TWO separate,
+      differently-keyed templates a sequence item needs, and they render in
+      two different places:
+        - An UNKEYED `<DataTemplate DataType="{x:Type ...}">` whose content is
+          wrapped in `<nina:SequenceBlockView><nina:SequenceBlockView.SequenceItemContent>`
+          - THIS is what renders inline when the item is placed and viewed in
+          the actual Advanced Sequencer editor tree, which is where a user
+          configuring a sequence actually looks for an item's controls.
+        - A KEYED `<DataTemplate x:Key="<FullyQualifiedType>_Mini">` whose
+          content is wrapped in `<mini:MiniSequenceItem><mini:MiniSequenceItem.SequenceItemContent>`
+          - this renders in a separate, secondary "Mini Sequencer" widget
+          (the reference plugin's own comment: "in the mini format on the
+          imaging tab"). The reference plugin leaves this one nearly empty
+          for both of its instructions - it is a glance/compact surface, not
+          the primary editing UI.
+      Round 40 defined ONLY the second one (as a bare StackPanel with no
+      `MiniSequenceItem` wrapper at all, which likely broke even that
+      secondary surface) and never defined the first one at all - so the
+      four function checkboxes never had anywhere to render in the actual
+      sequence editor tree, which is exactly the "Options do not appear" bug
+      reported after Round 40. Fixed by adding the missing unkeyed
+      SequenceBlockView-wrapped template below (this is the one that matters)
+      and correcting the keyed _Mini/MiniSequenceItem one to match the
+      reference plugin's wrapper convention. `SequenceItemContent` was
+      confirmed via dump_sig.py to be a real property (getter+setter) on both
+      NINA.View.Sequencer.SequenceBlockView and
+      NINA.View.Sequencer.MiniSequencer.MiniSequenceItem in the installed
+      NINA.Sequencer.dll.
+
+      x:Class + the [Export(typeof(ResourceDictionary))] partial class in
+      SmartCalDataTemplates.xaml.cs are both required - confirmed against a
+      real, published, working NINA plugin's source (SkyFlats by
+      photon1503): NINA's plugin composition discovers DataTemplates by
+      finding MEF-exported ResourceDictionary instances, not by a plugin
+      manually adding a resource dictionary to Application.Current at
+      construction time (which is what this file's plugin used to rely on,
+      before this was found and fixed - see SmartCalFramesPlugin.cs).
+      Every other NINA plugin resource dictionary (Options.xaml,
+      per-dockable template files, per-sequence-item template files) in
+      that reference source follows this same x:Class + Export pattern.
+
+      CRITICAL, found via a live screenshot after the plugin was already
+      loading and its Options section was rendering completely empty (no
+      controls at all, just a blank gap between the "Options" heading and
+      "Description"): "<PluginName>" in the "_Options" key means the
+      plugin's DISPLAYED NAME - i.e. AssemblyTitle, which NINA shows as the
+      big heading at the top of that pane ("Smart Cal Frames", WITH a
+      space, per this project's AssemblyInfo.cs) - NOT the project's
+      internal namespace/AssemblyName/AssemblyProduct ("SmartCalFrames",
+      no space). This key was originally written using the no-space
+      internal name, so NINA's lookup for "Smart Cal Frames_Options" never
+      found a match and silently rendered nothing, while the Dockable/Mini
+      keys were unaffected because those use fully-qualified C# type names,
+      not this display-name convention. The SkyFlats reference plugin never
+      exposed this distinction because its AssemblyTitle ("SkyFlats") and
+      its internal name happen to be identical (both one word, no space) -
+      confirmed only once "Three Point Polar Alignment" was seen rendering
+      real tabbed content in that exact same spot, proving the pane itself
+      works fine and this was purely a key-string mismatch.
+
+      A SECOND fix (removing DataType from this DataTemplate, to match two
+      confirmed-working reference plugins' own source exactly) was tried and
+      reverted: the very next build stopped showing up in NINA at all - no
+      "Successfully loaded" log line, not even under Plugins -> Installed -
+      a regression from the state before that change (which loaded fine,
+      just with an empty Options pane). Restored DataType here since it's
+      the one change from that round with no ruled-out mechanism, pending
+      confirmation that reverting it actually restores loading. If it does,
+      the empty-Options-pane problem needs a different fix than removing
+      DataType - the DataContext fix below (SmartCalFramesPlugin.Instance)
+      is independent of this and was kept either way.
+
+      ROUND 64 ADDENDUM - AssemblyTitle changed again, from "Smart Cal Frames" to
+      "Smart Calibration Frames" (per explicit request to rename the plugin/instruction).
+      This key is exactly the failure mode described above waiting to happen a second time -
+      renamed the x:Key below from "Smart Cal Frames_Options" to
+      "Smart Calibration Frames_Options" in the SAME edit as the AssemblyInfo.cs AssemblyTitle
+      change, specifically so the two never drift apart even for one commit. Everything else
+      in this comment block above still accurately describes the ORIGINAL bug at the time it
+      was found (when the title really was "Smart Cal Frames") and is left as historical
+      record, not a statement of the current title.
+    -->
+
+    <!-- ROUND 59 CLEANUP - a "SmartCalBoolToVis" BooleanToVisibilityConverter used to be declared here
+         too, but nothing in this file (or anywhere else in the plugin) ever referenced that key - only
+         SmartCalInverseBoolToVis below is actually used (by the Flat Frames filter-picker's Visibility
+         binding further down). Removed the unused declaration rather than leave a dead resource sitting
+         next to the one that's real. -->
+    <util:InverseBooleanToVisibilityConverter x:Key="SmartCalInverseBoolToVis"/>
+
+    <!-- ROUND 41f CORRECTION - these three are NOT plugin-local converters to declare/instantiate.
+         Build broke with "The tag 'DefaultBinningModesConverter' does not exist in XML namespace
+         '...NINA.Core.Utility;assembly=NINA.Core'" - turns out these follow the exact same pattern as
+         ProfileService (see the _Options template's ComboBox above): NINA registers ONE instance of each
+         app-wide under these exact StaticResource keys (confirmed the key strings are baked into NINA's
+         own compiled resources across NINA.Core.dll/NINA.WPF.Base.dll/NINA.Sequencer.dll), and the real
+         SkyFlats reference plugin references them the same way - by StaticResource key only, never
+         declaring a local &lt;ninacore:...Converter x:Key="..."/&gt; instance itself. Removed the three
+         local declarations (xmlns:ninacore stays - still needed below for ShortRangeRule/
+         ShortRangeChecker, which WERE confirmed to resolve fine via dump_sig.py) and switched every
+         {StaticResource SmartCal*Converter} reference to NINA's own unprefixed key name directly. -->
+
+    <DataTemplate x:Key="Smart Calibration Frames_Options" DataType="{x:Type opts:SmartCalOptionsVM}">
+        <opts:SmartCalOptionsView/>
+    </DataTemplate>
+
+    <DataTemplate x:Key="SmartCalFrames.Dockable.SmartCalFramesVM_Dockable" DataType="{x:Type dock:SmartCalFramesVM}">
+        <dock:SmartCalFramesView/>
+    </DataTemplate>
+
+    <!-- ROUND 40 built these controls; ROUND 41 fixed WHERE they render. This is the primary editing
+         template - an UNKEYED DataTemplate matched by DataType, its content wrapped in
+         nina:SequenceBlockView.SequenceItemContent - which is what NINA actually shows inline when the
+         item is placed and viewed in the Advanced Sequencer tree. (The Round 40 version put this exact
+         content in the wrong template - see the ROUND 41 CORRECTION comment above - which is why the
+         item rendered as just its icon and name with no controls at all.)
+         Layout: a top row of four function checkboxes (plus a fifth, dependent checkbox for Dark Frames'
+         optional light-history matching), and the original Flats-specific controls below, now grayed out
+         via IsEnabled when Flat Frames isn't checked (they're simply unused in that case, not removed -
+         unchecking Flat Frames doesn't clear FilterName/Binning/Gain/Offset, so re-checking it later
+         remembers what was there). Flat Darks/Bias/Dark Frames have no per-instance fields of their own
+         here - each just runs its own tab's already-configured settings from the dockable panel, same as
+         clicking that tab's button. -->
+    <DataTemplate DataType="{x:Type seq:SmartCalSequenceItem}">
+        <nina:SequenceBlockView>
+            <nina:SequenceBlockView.SequenceItemContent>
+                <!-- ROUND 41c - FontSize set here on purpose: WPF's font-related properties inherit down
+                     to descendants, so setting it once at this root flows to every CheckBox/TextBlock/
+                     TextBox below without repeating it on each one. Added because a live screenshot showed
+                     this content's default font noticeably larger than the neighboring "Take Exposure"
+                     row's text ("Time _ s | Type _ | Binning _ | Gain _ | Offset _") and other same-line
+                     text in this row (Bin/Gain/Offset) - 11 is a modest reduction from WPF's 12pt default;
+                     adjust here if it still doesn't visually match.
+                     MUST be set as the attached property TextElement.FontSize, NOT a plain FontSize=
+                     attribute - StackPanel is a Panel, not a Control, and Panel has no FontSize property
+                     of its own (build error: "The property 'FontSize' does not exist in XML namespace...").
+                     TextElement.FontSize is the standard WPF idiom for making font-size inheritance work
+                     from a non-Control container like this one. -->
+                <StackPanel TextElement.FontSize="11">
+                    <!-- ROUND 41e - NINA re-styles CheckBox app-wide as an ON/OFF toggle switch that does
+                         NOT display its Content text (confirmed via a live screenshot - five identical
+                         unlabeled "ON"/"OFF" toggles with no visible text at all). Fixed by pairing each
+                         toggle with its own separate TextBlock label - label FIRST, then the toggle it
+                         controls, matching NINA's own "Take Exposure" row convention above this one
+                         ("Time _ s", "Type _", etc. - label always precedes its control there). Round 41b
+                         had this backwards (toggle then label); corrected per explicit feedback. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="Flat Frames" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <CheckBox IsChecked="{Binding CaptureFlats}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Text="Flat Darks" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <CheckBox IsChecked="{Binding CaptureFlatDarks}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Text="Bias" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <CheckBox IsChecked="{Binding CaptureBias}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <TextBlock Text="Dark Frames" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <CheckBox IsChecked="{Binding CaptureDarkFrames}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <!-- ROUND 41e - reworded per explicit direction ("Match dark exposures to light
+                             frames" - clearer than "...to today's lights"). IsEnabled was previously stuck
+                             permanently off/unresponsive regardless of the Dark Frames toggle - that was
+                             the CaptureDarkFrames notification bug fixed in SmartCalSequenceItem.cs above,
+                             not anything in this markup. -->
+                        <TextBlock Text="Match dark exposures to light frames" VerticalAlignment="Center" Margin="0,0,4,0"
+                                   IsEnabled="{Binding CaptureDarkFrames}"
+                                   ToolTip="When Dark Frames is checked: for each filter, use the exposure length actually captured earlier in this sequence run instead of the Dark Frames tab's typed Exposure. Falls back to the tab's value if that filter hasn't been shot yet this run. Binning always comes from the Dark Frames tab either way."/>
+                        <CheckBox IsChecked="{Binding MatchDarkExposuresToLightHistory}"
+                                  IsEnabled="{Binding CaptureDarkFrames}" VerticalAlignment="Center"
+                                  ToolTip="When Dark Frames is checked: for each filter, use the exposure length actually captured earlier in this sequence run instead of the Dark Frames tab's typed Exposure. Falls back to the tab's value if that filter hasn't been shot yet this run. Binning always comes from the Dark Frames tab either way."/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" IsEnabled="{Binding CaptureFlats}">
+                        <TextBlock Text="All filters" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <CheckBox IsChecked="{Binding RunAllFilters}" VerticalAlignment="Center" Margin="0,0,10,0"/>
+                        <!-- ROUND 41e - filter name is now a ComboBox of the active filter wheel's actual
+                             filters instead of a free-typed name that has to match exactly. ProfileService
+                             is a NINA-provided global StaticResource (confirmed present in the installed
+                             NINA.WPF.Base.dll as Resources/StaticResources/ProfileService.xaml, and used
+                             the identical way - Source={StaticResource ProfileService},
+                             Path=ActiveProfile.FilterWheelSettings.FilterWheelFilters - by the real,
+                             published SkyFlats reference plugin), so no new C# property was needed for
+                             this. SelectedValue/SelectedValuePath="Name" writes the picked filter's name
+                             straight into the existing FilterName string property, unchanged everywhere
+                             else in this file. -->
+                        <ComboBox Width="110" Margin="0,0,10,0"
+                                  ItemsSource="{Binding Source={StaticResource ProfileService}, Path=ActiveProfile.FilterWheelSettings.FilterWheelFilters}"
+                                  DisplayMemberPath="Name"
+                                  SelectedValuePath="Name"
+                                  SelectedValue="{Binding FilterName, Mode=TwoWay}"
+                                  ToolTip="Filter to run Flat Frames against (ignored when 'All filters' is checked)"
+                                  Visibility="{Binding RunAllFilters, Converter={StaticResource SmartCalInverseBoolToVis}}"/>
+                        <!-- ROUND 41f - replaced the earlier two-dropdown Bin X / "x" / Bin Y layout (which
+                             read as an unexplained extra control, and needed a typed "x" separator at all)
+                             with a SINGLE Binning dropdown - matching NINA's own "Take Exposure" row
+                             directly above this one exactly ("Binning 2x2", one control). Bound to the
+                             connected camera's actual reported binning modes (CameraInfo.BinningModes),
+                             same as that row, via the new live-CameraInfo plumbing in
+                             SmartCalSequenceItem.cs. Each mode's own DisplayMemberPath="Name" already
+                             renders as "1x1"/"2x2"/etc., so the "x" is part of that text, not a separate
+                             floating character needing its own spacing. -->
+                        <TextBlock Text="Binning" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <ComboBox Width="70" Margin="0,0,8,0"
+                                  ItemsSource="{Binding CameraInfo.BinningModes, Converter={StaticResource DefaultBinningModesConverter}}"
+                                  DisplayMemberPath="Name"
+                                  SelectedItem="{Binding BinningMode, Mode=TwoWay}"/>
+                        <!-- ROUND 41f - Gain/Offset now match the Take Exposure row's own presentation:
+                             a HintTextBox showing the connected camera's actual default (grayed, in
+                             parens - "should not be enabled if they are already set", i.e. read as "in
+                             use" rather than as a live-typed value) when the field itself is empty/-1,
+                             and still directly editable to override. MinusOneToEmptyStringConverter maps
+                             -1 <-> "" so an untouched field reads as "use the default" both ways.
+                             ShortRangeRule/ShortRangeChecker (Min -1, Max 32767) match the same
+                             validation range the reference plugin's own Gain/Offset fields use. -->
+                        <TextBlock Text="Gain" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <ninactrl:HintTextBox Width="50" Margin="0,0,8,0" VerticalAlignment="Center" HorizontalContentAlignment="Right">
+                            <ninactrl:HintTextBox.HintText>
+                                <Binding Path="CameraInfo.DefaultGain" Converter="{StaticResource CameraDefaultValueConverter}" Mode="OneWay"/>
+                            </ninactrl:HintTextBox.HintText>
+                            <ninactrl:HintTextBox.Text>
+                                <Binding Path="Gain" Converter="{StaticResource MinusOneToEmptyStringConverter}" Mode="TwoWay" UpdateSourceTrigger="PropertyChanged">
+                                    <Binding.ValidationRules>
+                                        <ninacore:ShortRangeRule>
+                                            <ninacore:ShortRangeRule.ValidRange>
+                                                <ninacore:ShortRangeChecker Minimum="-1" Maximum="32767"/>
+                                            </ninacore:ShortRangeRule.ValidRange>
+                                        </ninacore:ShortRangeRule>
+                                    </Binding.ValidationRules>
+                                </Binding>
+                            </ninactrl:HintTextBox.Text>
+                        </ninactrl:HintTextBox>
+                        <TextBlock Text="Offset" VerticalAlignment="Center" Margin="0,0,4,0"/>
+                        <ninactrl:HintTextBox Width="50" VerticalAlignment="Center" HorizontalContentAlignment="Right">
+                            <ninactrl:HintTextBox.HintText>
+                                <Binding Path="CameraInfo.DefaultOffset" Converter="{StaticResource CameraDefaultValueConverter}" Mode="OneWay"/>
+                            </ninactrl:HintTextBox.HintText>
+                            <ninactrl:HintTextBox.Text>
+                                <Binding Path="Offset" Converter="{StaticResource MinusOneToEmptyStringConverter}" Mode="TwoWay" UpdateSourceTrigger="PropertyChanged">
+                                    <Binding.ValidationRules>
+                                        <ninacore:ShortRangeRule>
+                                            <ninacore:ShortRangeRule.ValidRange>
+                                                <ninacore:ShortRangeChecker Minimum="-1" Maximum="32767"/>
+                                            </ninacore:ShortRangeRule.ValidRange>
+                                        </ninacore:ShortRangeRule>
+                                    </Binding.ValidationRules>
+                                </Binding>
+                            </ninactrl:HintTextBox.Text>
+                        </ninactrl:HintTextBox>
+                    </StackPanel>
+                </StackPanel>
+            </nina:SequenceBlockView.SequenceItemContent>
+        </nina:SequenceBlockView>
+    </DataTemplate>
+
+    <!-- ROUND 41 - this is the SECONDARY "Mini Sequencer" widget template (a different, glance-only
+         surface, not the Advanced Sequencer tree above). Content wrapped in
+         mini:MiniSequenceItem.SequenceItemContent per the reference plugin's convention. Kept
+         deliberately minimal/read-only here (a single line via the item's own ToString(), which already
+         lists which functions are enabled) rather than duplicating live-editable checkboxes in two
+         places at once - the reference plugin (SkyFlats) leaves this surface empty entirely for the same
+         reason: it's a compact status glance, not a second copy of the editor. -->
+    <DataTemplate x:Key="SmartCalFrames.Sequencer.SmartCalSequenceItem_Mini" DataType="{x:Type seq:SmartCalSequenceItem}">
+        <mini:MiniSequenceItem>
+            <mini:MiniSequenceItem.SequenceItemContent>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                </StackPanel>
+            </mini:MiniSequenceItem.SequenceItemContent>
+        </mini:MiniSequenceItem>
+    </DataTemplate>
+
+</ResourceDictionary>

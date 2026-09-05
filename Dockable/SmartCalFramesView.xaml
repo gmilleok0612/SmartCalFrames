@@ -1,0 +1,487 @@
+<UserControl x:Class="SmartCalFrames.Dockable.SmartCalFramesView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:util="clr-namespace:SmartCalFrames.Utility"
+             xmlns:sys="clr-namespace:System;assembly=mscorlib"
+             mc:Ignorable="d" d:DesignWidth="380">
+    <UserControl.Resources>
+        <util:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
+
+        <!-- ROUND 44 - Run Flats tab's "Frames per filter" simple control / Adaptive (advanced) reveal.
+             BooleanToVisibilityConverter is a standard built-in WPF class (System.Windows.Controls,
+             PresentationFramework) - already covered by the default presentation xmlns above, no extra
+             namespace import needed. InverseBooleanToVisibilityConverter already existed in this
+             project (Utility/InverseBooleanToVisibilityConverter.cs), previously used only by the
+             sequencer's compact editor. -->
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        <util:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
+
+        <!-- ROUND 39 - Dark Frames tab's per-row Binning dropdown (tab renamed same session from "Light
+             Darks" per explicit user feedback). A plain 1x-5x list ("no reason to go farther than that"
+             per explicit direction) - a static x:Array is simplest here since every row's ComboBox needs
+             the exact same fixed item list, with no need to reach back to a parent VM property through a
+             RelativeSource binding. -->
+        <x:Array x:Key="BinningOptions" Type="sys:Int32">
+            <sys:Int32>1</sys:Int32>
+            <sys:Int32>2</sys:Int32>
+            <sys:Int32>3</sys:Int32>
+            <sys:Int32>4</sys:Int32>
+            <sys:Int32>5</sys:Int32>
+        </x:Array>
+
+        <!-- ROUND 36 FIX - reported: "when I click on Flat Darks, I lose the run for filters and can't
+             figure out how to go back to that window." Root cause: a plain WPF TabControl/TabItem has no
+             NINA styling applied to it at all - unlike the RunLog ListBox below (already given an
+             explicit dark-theme override for the same reason back when this panel was first built), the
+             TabControl added in this round was left with WPF's default light-theme tab header rendering,
+             which goes low-contrast-to-invisible against NINA's dark background. The "Run" tab was never
+             actually gone - there was just nothing visible to click to get back to it. Explicit
+             ControlTemplate below gives both tab headers NINA's own dark palette (#273238 base, #3E4B54
+             selected - the exact colors already sampled from NINA for the RunLog ListBox), so the
+             inactive tab is always visible and obviously clickable. -->
+        <Style x:Key="SmartCalTabItemStyle" TargetType="TabItem">
+            <Setter Property="Padding" Value="12,5"/>
+            <Setter Property="Margin" Value="0,0,2,0"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="Border" Background="#FF1A2226" BorderBrush="#FF3E4B54" BorderThickness="1,1,1,0" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter x:Name="ContentSite" ContentSource="Header"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FF3E4B54"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#FF2F3B42"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ROUND 46 FIX - reported after the tab-visibility fix: "your fix is not what it is supposed to
+             look like" - a real screenshot of the live panel showed the Run All strip's four checkboxes
+             rendering as unlabeled ON/OFF toggle-switch pills, with no "Flats"/"Flat Darks"/"Bias
+             Frames"/"Dark Frames" text anywhere. Root cause: NINA applies its own APPLICATION-WIDE
+             implicit style to every plain <CheckBox> (keyed by TargetType, not by x:Key, so it applies
+             silently with no local Style reference needed) - the same style behind NINA's own equipment
+             "Connected" toggles - which replaces the normal square-box-plus-label template with a
+             toggle-switch template that only ever shows static "ON"/"OFF" text and never renders the
+             Content property at all. Every <CheckBox> added to this file was silently swallowed by that
+             ambient style; nothing in our own bindings was wrong, the rendering just wasn't the labeled
+             checkbox row that was actually asked for ("similar to a sequence instruction").
+
+             Fix, same pattern as the Round 36 TabItem style override above (NINA's ambient styling
+             doesn't match what this panel needs, so give it an explicit local Style instead of relying on
+             app-wide defaults): a self-contained ControlTemplate - a plain square box that fills with a
+             checkmark when checked, plus a real ContentPresenter so the label text actually shows.
+             Applied to every CheckBox in this file: the four Run All checkboxes below AND the Round 44
+             "Adaptive (advanced)" checkbox on the Run Flats tab, which had the exact same latent defect -
+             just not yet reported, since this is the first time the whole panel has been visible in live
+             NINA since the Round 45 layout change (the tab itself was hidden by the docking-layout issue
+             until just now). -->
+        <Style x:Key="SmartCalCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="CheckBox">
+                        <StackPanel Orientation="Horizontal">
+                            <Border x:Name="Box" Width="15" Height="15" Background="#FF1A2226"
+                                    BorderBrush="#FF7C8A93" BorderThickness="1" VerticalAlignment="Center">
+                                <Path x:Name="CheckMark" Data="M 1,5 L 5,9 L 13,1" Stroke="White"
+                                      StrokeThickness="2" Visibility="Collapsed"/>
+                            </Border>
+                            <ContentPresenter Margin="6,0,0,0" VerticalAlignment="Center"
+                                               TextElement.Foreground="{TemplateBinding Foreground}"/>
+                        </StackPanel>
+                        <!-- ROUND 47 - checkmark/border changed from blue (#FF3EA6FF) to White per
+                             explicit feedback: blue clashed against the Run All strip's green button
+                             background once that strip's Border background changed to the grey
+                             "selected" color (#FF3E4B54) - White reads cleanly against both. -->
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="CheckMark" Property="Visibility" Value="Visible"/>
+                                <Setter TargetName="Box" Property="Background" Value="#FF273238"/>
+                                <Setter TargetName="Box" Property="BorderBrush" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Box" Property="BorderBrush" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ROUND 49 (REVERTED in ROUND 50) - tried giving All/None/Run Selected/Stop a flat dock-tab-
+             style look (#FF1A2226 base). Reported back: "the background is still black is that
+             intentional on these buttons-they should be green." NINA's own DEFAULT Button chrome is
+             already green when enabled (visible in the user's own screenshot earlier this session) -
+             overriding it with the flat grey template actually broke consistency with NINA's interface
+             rather than improving it, since these are ACTION buttons (NINA renders those green), not
+             dock-tab headers (which NINA renders in the dark grey this style used). Style removed below
+             and the four buttons now use NINA's own ambient default Button style again - no local
+             Style="..." reference at all, same as every other capture button already in this file
+             (Capture flat darks, Preview groups, etc.), all of which were always left at NINA's default
+             and never reported as wrong. -->
+    </UserControl.Resources>
+    <Grid Margin="8">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- ROUND 43 - "Run All" strip: queues and runs any combination of Flats/Flat Darks/Bias
+             Frames/Dark Frames with one click, each using whatever is already configured on its own
+             tab below (see SmartCalFramesVM.RunSelectedBatchAsync for the full design - fixed order,
+             per-item failure doesn't abort the queue, Stop cancels the whole thing). Deliberately
+             placed above the TabControl rather than as a fifth tab, since it's meant to work no matter
+             which tab happens to be selected, not compete with them for the same space.
+
+             ROUND 45 - REVISED per explicit user feedback: single horizontal line - checkboxes and
+             buttons together, left to right - matching how NINA's own Advanced Sequencer instructions
+             lay out an inline row of checkboxes. Wrapped in a horizontal-only ScrollViewer (not a
+             WrapPanel) so the line never wraps to a second row - it scrolls sideways instead.
+
+             ROUND 47 - REVISED again per explicit user feedback on a real screenshot:
+             - Deleted the "Run All" label text (was the first child of a wrapping StackPanel, upper-
+               LEFT corner of the border) - redundant once this is the only thing in the border, so the
+               ScrollViewer is now the Border's direct child and the wrapping StackPanel is gone.
+             - Background changed from #FF1A2226 to #FF3E4B54 (the same grey already used elsewhere in
+               this file for a tab's SELECTED state - see SmartCalTabItemStyle above - reusing an
+               already-established "selected" color rather than picking a new one).
+             - Padding reduced from 8 to 4,3 now that there's no separate label row above the checkboxes
+               to leave headroom for.
+             - All/None/Run Selected/Stop buttons: FontSize bound to the first checkbox's actual
+               rendered FontSize (ElementName binding, not a guessed pixel value) so they visually match
+               the surrounding checkbox/label text instead of inheriting NINA's own (larger) default
+               Button font size.
+
+             ROUND 48 CORRECTION - "Frames per filter"/"Adaptive (advanced)" were relocated HERE in
+             Round 47, but that wasn't the actual ask ("where did adaptive go... my idea was to simply
+             move the number of filters and adaptive to the right side of the Filter above it") - the
+             real intent all along was the Run Flats TAB's own "Filter:" row, not this strip. Moved back
+             out to the Run Flats tab below (see that TabItem's Grid.Row="0"). Also switched from a
+             horizontal-only ScrollViewer to a WrapPanel per explicit request ("make the line with the
+             checkboxes wrap instead of a scroll bar") - a WrapPanel lets the strip drop to a second
+             line on a narrow docked panel instead of requiring a horizontal scrollbar. -->
+        <Border Grid.Row="0" Margin="0,0,0,8" Padding="4,3" Background="#FF3E4B54" BorderBrush="#FF3E4B54" BorderThickness="1">
+            <WrapPanel Orientation="Horizontal">
+                <CheckBox x:Name="RunAllFlatsCheckBox" Content="Flats" IsChecked="{Binding RunFlatsSelected}"
+                          Style="{StaticResource SmartCalCheckBoxStyle}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                          VerticalAlignment="Center" Margin="0,0,14,4"/>
+                <CheckBox Content="Flat Darks" IsChecked="{Binding RunFlatDarksSelected}"
+                          Style="{StaticResource SmartCalCheckBoxStyle}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                          VerticalAlignment="Center" Margin="0,0,14,4"/>
+                <CheckBox Content="Bias Frames" IsChecked="{Binding RunBiasSelected}"
+                          Style="{StaticResource SmartCalCheckBoxStyle}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                          VerticalAlignment="Center" Margin="0,0,14,4"/>
+                <CheckBox Content="Dark Frames" IsChecked="{Binding RunDarkFramesSelected}"
+                          Style="{StaticResource SmartCalCheckBoxStyle}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                          VerticalAlignment="Center" Margin="0,0,20,4"/>
+                <Button Content="All" Command="{Binding SelectAllRunItemsCommand}"
+                        FontSize="{Binding FontSize, ElementName=RunAllFlatsCheckBox}"
+                        IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                        Margin="0,0,4,4" Padding="8,3"/>
+                <Button Content="None" Command="{Binding SelectNoRunItemsCommand}"
+                        FontSize="{Binding FontSize, ElementName=RunAllFlatsCheckBox}"
+                        IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                        Margin="0,0,14,4" Padding="8,3"/>
+                <Button Content="Run Selected" Command="{Binding RunSelectedBatchCommand}"
+                        FontSize="{Binding FontSize, ElementName=RunAllFlatsCheckBox}"
+                        IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                        Margin="0,0,6,4" Padding="8,3"/>
+                <Button Content="Stop" Command="{Binding StopCommand}"
+                        FontSize="{Binding FontSize, ElementName=RunAllFlatsCheckBox}"
+                        IsEnabled="{Binding IsRunning}" Margin="0,0,0,4" Padding="8,3"/>
+            </WrapPanel>
+        </Border>
+
+        <!-- ROUND 36 - "Run" (flats) and "Flat Darks" now live as two tabs in the same panel, per
+             explicit direction, instead of a second dockable panel or a sequencer-only feature. Both
+             tabs share the StatusText/RunLog area below the TabControl - one running log regardless of
+             which tab started it, same as a manually-started flats run and a sequencer-driven one
+             already share this panel's log (see SmartCalFramesVM.ClearForExternalRun/AppendExternalStatus). -->
+        <TabControl Grid.Row="1" Margin="0,0,0,8" Background="Transparent" BorderThickness="0">
+            <TabItem Header="Run Flats" Style="{StaticResource SmartCalTabItemStyle}">
+                <!-- ROUND 47 - per explicit user direction: "Frames per filter" + "Adaptive (advanced)"
+                     moved up to the Run All strip above (Grid.Row="0" of the outer Grid) - the row that
+                     used to hold them here is gone. The bottom "Run this filter"/"Run all filters"/
+                     "Stop" button row is also deleted outright: redundant now that "Run Selected"/"Stop"
+                     on the Run All strip cover the same actions. Filter dropdown, the filter-defaults
+                     summary text, and the Min/Max/note reveal (still driven by the SAME FlatAdaptiveMode
+                     binding, now toggled from the strip above) were explicitly told to stay untouched,
+                     so they're unchanged below - only renumbered since two rows were removed.
+
+                     ONE REAL CAPABILITY LOSS from deleting "Run this filter" - flagged per explicit
+                     request to check for issues: that button ran ONLY the filter selected in the
+                     dropdown above (via the VM's since-removed RunSelectedCommand -> RunAsync(allFilters:
+                     false); ROUND 59 CLEANUP deleted that now-unused command from SmartCalFramesVM
+                     entirely, since nothing had bound to it since this button was removed here). The Run
+                     All strip's "Run Selected" button always runs FLATS ACROSS ALL FILTERS
+                     (RunSelectedBatchAsync -> RunAsync(allFilters:true, standalone:false) - the same
+                     path "Run all filters" used). There is now no button anywhere in this panel to
+                     capture just ONE hand-picked filter and skip the rest - the Filter dropdown above is
+                     now preview-only (drives FilterDefaultsSummary's brightness/exposure display) rather
+                     than a captureable selection. -->
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- ROUND 52 - reported "still is backwards" after Round 51's notification fix, then
+                         clarified precisely: unchecked was popping Min/Max up on the NEXT LINE
+                         (left-aligned), which read as the reveal being tied to the wrong state AND as
+                         a jarring layout jump. Two changes:
+                         1) Min/Max (and the note) moved onto THIS SAME ROW, to the right of the Adaptive
+                            checkbox, instead of a separate row below - "have the min/max pop up to the
+                            right of the checkbox like the others so it doesn't move" - no more vertical
+                            line-jump when toggling.
+                         2) Every reveal Visibility (Frames-per-filter AND Min/Max) now binds to
+                            {Binding IsChecked, ElementName=FlatAdaptiveCheckBox} instead of the VM's
+                            FlatAdaptiveMode. FlatAdaptiveMode is a DERIVED property (Min != Max) that
+                            depends on RaisePropertyChanged being raised correctly from three different
+                            setters (FlatFrameCount/FlatMinFramesPerFilter/FlatMaxFramesPerFilter) -
+                            Round 51 fixed one gap in that chain, but binding the reveal directly to the
+                            checkbox's own IsChecked removes the whole class of "these two bindings can
+                            disagree" bug: both now read the exact same DependencyProperty at the exact
+                            same moment, with no VM round-trip in between. IsChecked itself still writes
+                            through to FlatAdaptiveMode via its own TwoWay binding, so persistence is
+                            unchanged - only what drives the on-screen reveal changed. -->
+                    <!-- ROUND 53 - "that really doesn't work... Put the adaptive checkmark where it is
+                         when checked and fix it at that location... so the adaptive checkbox doesn't
+                         move when checked but the min/max and the frames per filter just change
+                         places." Root cause of the movement: Frames-per-filter used to sit BEFORE the
+                         checkbox in this same horizontal StackPanel - collapsing it (when checked) let
+                         everything after it, including the checkbox, slide left to fill the gap. Fix:
+                         reordered so NOTHING before the checkbox ever changes width (just Filter: +
+                         ComboBox, always present) - the checkbox now has a fixed position no matter what.
+                         Frames-per-filter and Min/Max both moved to AFTER the checkbox, in the same
+                         mutually-exclusive Visibility pair as before, so they swap places in that one
+                         slot without ever touching the checkbox's own position. -->
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Filter:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <ComboBox Width="140" ItemsSource="{Binding KnownFilters}"
+                                  SelectedItem="{Binding SelectedFilter}"
+                                  IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"/>
+                        <CheckBox x:Name="FlatAdaptiveCheckBox" Content="Adaptive (advanced)" IsChecked="{Binding FlatAdaptiveMode}"
+                                  Style="{StaticResource SmartCalCheckBoxStyle}"
+                                  IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                  VerticalAlignment="Center" Margin="16,0,16,0"/>
+                        <TextBlock Text="Frames per filter:" VerticalAlignment="Center" Margin="0,0,6,0"
+                                   Visibility="{Binding IsChecked, ElementName=FlatAdaptiveCheckBox, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                        <TextBox Width="42" Text="{Binding FlatFrameCount}"
+                                 IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                 Visibility="{Binding IsChecked, ElementName=FlatAdaptiveCheckBox, Converter={StaticResource InverseBooleanToVisibilityConverter}}"
+                                 VerticalAlignment="Center"/>
+                        <TextBlock Text="Min:" VerticalAlignment="Center" Margin="0,0,4,0"
+                                   Visibility="{Binding IsChecked, ElementName=FlatAdaptiveCheckBox, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <TextBox Width="45" Text="{Binding FlatMinFramesPerFilter}"
+                                 IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                 Visibility="{Binding IsChecked, ElementName=FlatAdaptiveCheckBox, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <TextBlock Text="Max:" VerticalAlignment="Center" Margin="10,0,4,0"
+                                   Visibility="{Binding IsChecked, ElementName=FlatAdaptiveCheckBox, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <TextBox Width="45" Text="{Binding FlatMaxFramesPerFilter}"
+                                 IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                 Visibility="{Binding IsChecked, ElementName=FlatAdaptiveCheckBox, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="1" Text="{Binding FilterDefaultsSummary}" TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.8"/>
+
+                    <TextBlock Grid.Row="2" Text="Stack stability threshold on the Options page controls early-stop within this range."
+                               TextWrapping="Wrap" FontSize="10" Opacity="0.6" Margin="0,0,0,8"
+                               Visibility="{Binding IsChecked, ElementName=FlatAdaptiveCheckBox, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Flat Darks" Style="{StaticResource SmartCalTabItemStyle}">
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.8"
+                               Text="Captures dark frames matched to each filter's stored flat exposure - one dark group per unique exposure, so filters sharing an exposure share one group. Uses the current camera gain/offset and bin1x1, same as flats. The flat panel's light is turned off before capturing; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected)."/>
+
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Darks per group:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox Width="50" Text="{Binding DarkFramesPerGroup}"
+                                  IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"/>
+                        <!-- ROUND 57 - button label now reflects what clicking it will do next
+                             ("Show Groups" while hidden, "Hide Groups" while shown), per explicit
+                             request, instead of a static "Preview groups" that never changed.
+                             ROUND 58 FIX - the original Round 57 Style had no BasedOn, so setting it
+                             directly on Button.Style replaced NINA's ambient implicit Button style
+                             entirely for this one button (setting Style on an element always wins over
+                             an implicit style lookup) - it fell back to plain default WPF Button chrome
+                             instead of NINA's green action-button look ("Capture flat darks" below never
+                             had this problem because it has no local Style at all, so NINA's implicit
+                             style still applies to it). BasedOn="{StaticResource {x:Type Button}}" below
+                             re-inherits that same ambient green/light-green look - only the Content
+                             swap is still this Style's own doing. -->
+                        <Button Command="{Binding PreviewDarkGroupsCommand}"
+                                IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                Margin="12,0,0,0" Padding="8,3">
+                            <Button.Style>
+                                <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                    <Setter Property="Content" Value="Show Groups"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding DarkGroupsPreviewVisible}" Value="True">
+                                            <Setter Property="Content" Value="Hide Groups"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Button.Style>
+                        </Button>
+                    </StackPanel>
+
+                    <TextBlock Grid.Row="2" Text="{Binding DarkGroupsPreview}" TextWrapping="Wrap"
+                               FontFamily="Consolas" FontSize="11" Margin="0,0,0,8"
+                               Visibility="{Binding DarkGroupsPreviewVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                    <StackPanel Grid.Row="3" Orientation="Horizontal">
+                        <Button Content="Capture flat darks" Command="{Binding RunFlatDarksCommand}"
+                                IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                Margin="0,0,6,0" Padding="8,3"/>
+                        <Button Content="Stop" Command="{Binding StopCommand}"
+                                IsEnabled="{Binding IsRunning}" Padding="8,3"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Bias Frames" Style="{StaticResource SmartCalTabItemStyle}">
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.8"
+                               Text="Captures a fixed count of bias frames - current camera gain/offset, bin1x1, no filter wheel move. Exposure is not user-set: it's read from the connected camera's own reported minimum exposure at capture time (falls back to the Min Exposure setting from Run Flats only if the camera doesn't report one). The flat panel's light is turned off before capturing, same as Flat Darks; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected)."/>
+
+                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                        <TextBlock Text="Frame count:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBox Width="50" Text="{Binding BiasFrameCount}"
+                                  IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal">
+                        <Button Content="Capture bias frames" Command="{Binding RunBiasFramesCommand}"
+                                IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                Margin="0,0,6,0" Padding="8,3"/>
+                        <Button Content="Stop" Command="{Binding StopCommand}"
+                                IsEnabled="{Binding IsRunning}" Padding="8,3"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+
+            <TabItem Header="Dark Frames" Style="{StaticResource SmartCalTabItemStyle}">
+                <Grid Margin="0,8,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.8"
+                               Text="Captures dark frames matched to each filter's own light-frame settings (not the stored flat exposure, unlike Flat Darks). Set Binning/Frames/Exposure per filter below - a filter left at 0 frames is skipped; exposure must be at least 0.1s once you set a frame count above 0. Filters that agree on both exposure and binning share one capture pass, using the larger requested frame count. Uses the current camera gain/offset, no filter wheel move. The flat panel's light is turned off before capturing; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected). A summary of what was actually captured per group appears at the top once the run finishes, so a failed group is easy to spot."/>
+
+                    <ScrollViewer Grid.Row="1" MaxHeight="220" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8">
+                        <ItemsControl ItemsSource="{Binding DarkFrameRows}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                                        <TextBlock Text="{Binding FilterName}" Width="80" VerticalAlignment="Center" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Bin:" VerticalAlignment="Center" Margin="6,0,4,0"/>
+                                        <ComboBox Width="55" ItemsSource="{StaticResource BinningOptions}"
+                                                  SelectedItem="{Binding BinningFactor}"
+                                                  IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Text="{Binding StringFormat={}{0}x}"/>
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <TextBlock Text="Frames:" VerticalAlignment="Center" Margin="10,0,4,0"/>
+                                        <TextBox Width="45" Text="{Binding FrameCount, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}"/>
+                                        <TextBlock Text="Exposure (s):" VerticalAlignment="Center" Margin="10,0,4,0"/>
+                                        <TextBox Width="65" Text="{Binding ExposureSeconds, StringFormat=F1, UpdateSourceTrigger=PropertyChanged}"
+                                                  IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}"/>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+
+                    <StackPanel Grid.Row="2" Orientation="Horizontal">
+                        <Button Content="Capture dark frames" Command="{Binding RunDarkFramesCommand}"
+                                IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                Margin="0,0,6,0" Padding="8,3"/>
+                        <Button Content="Stop" Command="{Binding StopCommand}"
+                                IsEnabled="{Binding IsRunning}" Padding="8,3"/>
+                    </StackPanel>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <Separator Grid.Row="2" Margin="0,0,0,8"/>
+
+        <Grid Grid.Row="3">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Grid.Row="0" Text="{Binding StatusText}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,4"/>
+
+            <!-- Running log: one line per search attempt and per accepted (keeper) frame, exposure and
+                 ADU included - this is the "does NINA show what the exposure and ADU is after taking the
+                 exposure" running log. Newest entry is added at the end; ScrollIntoView keeps it visible
+                 without the user having to scroll manually during a run. Styled with NINA's own default
+                 dark background (#273238, sampled directly from the app rather than guessed) and white
+                 text, matching NINA's own look instead of the default grey-on-white ListBox. -->
+            <ListBox Grid.Row="1" x:Name="RunLogListBox" ItemsSource="{Binding RunLog}"
+                     FontFamily="Consolas" FontSize="11"
+                     Background="#FF273238" Foreground="White" BorderBrush="#FF273238"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Background" Value="#FF273238"/>
+                        <Setter Property="Foreground" Value="White"/>
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Background" Value="#FF3E4B54"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </ListBox.ItemContainerStyle>
+            </ListBox>
+        </Grid>
+    </Grid>
+</UserControl>

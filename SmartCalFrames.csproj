@@ -1,0 +1,149 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    This targets the NuGet-based NINA 3.x plugin model (net8.0-windows,
+    PackageReference to NINA.Plugin rather than HintPath references to a
+    local NINA install). Pin the Version below to whatever NINA release
+    you're actually running - a plugin built against a newer/older host
+    version than the one installed is the single most common reason a
+    plugin builds fine but never shows up in NINA's plugin list.
+  -->
+
+  <PropertyGroup>
+    <!--
+      Match the exact TFM the NINA.* NuGet packages themselves ship
+      (net8.0-windows7.0), not just the unversioned net8.0-windows. Harmless
+      either way for the APIs this plugin actually calls, but it removes one
+      more variable while chasing a silent-load problem.
+    -->
+    <TargetFramework>net8.0-windows7.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Platforms>x64</Platforms>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>disable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <RootNamespace>SmartCalFrames</RootNamespace>
+    <AssemblyName>SmartCalFrames</AssemblyName>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <!--
+      Without this, the SDK assumes some resolved NuGet dependencies are
+      already available wherever the assembly runs and skips copying them
+      to the output folder - wrong for a plugin that gets loaded into its
+      own isolated AssemblyLoadContext scoped to its own directory (as
+      NINA's plugin host does). This was the actual cause of
+      Newtonsoft.Json.dll being missing from the built plugin folder even
+      though the build succeeded and referenced it directly.
+    -->
+    <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!--
+      Re-pinned to 3.2.0.9001: the user updated their NINA install from
+      3.1.2.9001 to 3.2.x, which is what this was ORIGINALLY pinned to
+      before the 3.1.2.9001 host/package mismatch was diagnosed (see the
+      csproj history / project KB for that whole investigation - it was a
+      real bug, just for a host version that's no longer the one running).
+      3.2.0.9001 is confirmed on nuget.org as a real, published, stable
+      NINA.Plugin release, and it's the version this plugin's SDK
+      signatures were originally verified against (see README's "SDK
+      signatures: verified, not guessed" section) - so this pin should now
+      match BOTH the running host and the verified signatures.
+
+      IMPORTANT: "NINA 3.2" as reported by the user may not be the exact
+      build 3.2.0.9001 - check Options -> General in NINA for the precise
+      version string (format X.Y.Z.WWWW) and update this Version attribute
+      to match exactly if it differs. The whole point of this pin is exact
+      equality with the running host, not just "close enough" - a mismatch
+      at any version pair, not just this one, is what caused the silent
+      (zero-log-output) load failure diagnosed earlier in this project.
+      NINA.Plugin transitively pulls in NINA.Sequencer, NINA.Core,
+      NINA.Equipment, NINA.Image, NINA.Profile, NINA.WPF.Base,
+      NINA.Astrometry, NINA.CustomControlLibrary at the same version.
+    -->
+    <PackageReference Include="NINA.Plugin" Version="3.2.0.9001" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Page Update="Dockable\SmartCalFramesView.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Options\SmartCalOptionsView.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+    <Page Update="Templates\SmartCalDataTemplates.xaml">
+      <Generator>MSBuild:Compile</Generator>
+    </Page>
+  </ItemGroup>
+
+  <!--
+    THE ACTUAL ROOT CAUSE OF THE SILENT LOAD FAILURE (found by comparing
+    against a real, published, working NINA plugin's own build/postbuild
+    script - SkyFlats by photon1503): NINA does NOT scan
+    %localappdata%\NINA\Plugins\<PluginName>\ directly. It scans
+    %localappdata%\NINA\Plugins\<version-bucket>\<PluginName>\ - an extra
+    version-bucket folder ("3.0.0" in that plugin's own working build
+    script) sits between "Plugins" and the plugin's own folder. Every
+    previous round of fixes in this project (SDK signature corrections,
+    CopyLocalLockFileAssemblies, the NINA.Plugin package version pin) was
+    real and worth keeping, but none of them mattered if NINA was never
+    even scanning the folder the build was copying into - which explains
+    the exact symptom seen in both NINA log files: not one single mention
+    of "SmartCalFrames" anywhere, not even an error, because PluginLoader
+    never had a reason to look at that directory at all.
+
+    Local dev loop: copying the build output to this folder after every
+    build means "close NINA, F5, reopen NINA" is the whole edit/test cycle
+    - no separate install step while iterating. Comment this out (or point
+    it at your own manifest/zip pipeline) once you're ready to package for
+    real distribution.
+  -->
+  <Target Name="CopyToNinaPluginsFolder" AfterTargets="Build">
+    <ItemGroup>
+      <PluginOutputFiles Include="$(TargetDir)**\*.*"
+                          Exclude="$(TargetDir)**\NINA.*.dll" />
+    </ItemGroup>
+    <!--
+      NINA.*.dll (NINA.Core.dll, NINA.Equipment.dll, NINA.Profile.dll, its
+      *.resources.dll satellites in culture subfolders, etc.) are excluded
+      on purpose. These are the assemblies NINA's own host process already
+      has loaded; the plugin should call into the host's copies, never ship
+      a second copy of its own. Even at a matching package version this is
+      the correct thing to do - it's what stops a *future* version bump
+      here from silently reintroducing the exact type-identity mismatch
+      this round of fixes is chasing. Only this plugin's own DLL and
+      genuinely-private third-party dependencies (Newtonsoft.Json.dll,
+      etc.) should ever land in the plugin folder.
+    -->
+    <Copy SourceFiles="@(PluginOutputFiles)"
+          DestinationFolder="$(LocalAppData)\NINA\Plugins\3.0.0\SmartCalFrames\%(RecursiveDir)"
+          SkipUnchangedFiles="true"
+          ContinueOnError="true" />
+    <!--
+      Belt-and-suspenders: if a PREVIOUS build (before this fix existed)
+      already dropped NINA.*.dll copies into the plugin folder, a plain
+      rebuild won't remove them on its own - Copy only adds/updates files,
+      it never deletes stale ones. Delete any that are already there so a
+      stale copy can't keep causing the exact problem this fix addresses.
+    -->
+    <ItemGroup>
+      <StaleNinaAssembliesInPluginFolder Include="$(LocalAppData)\NINA\Plugins\3.0.0\SmartCalFrames\**\NINA.*.dll" />
+    </ItemGroup>
+    <Delete Files="@(StaleNinaAssembliesInPluginFolder)" ContinueOnError="true" />
+    <!--
+      Old, wrong location from every previous round of fixes this session -
+      NINA was never scanning this folder, so nothing that ever landed here
+      could have loaded. Removing it so a stale copy sitting there can't
+      cause any confusion (e.g. "the DLL is there, why doesn't it load" -
+      because that folder was never the one being read).
+    -->
+    <ItemGroup>
+      <OldWrongLocationFiles Include="$(LocalAppData)\NINA\Plugins\SmartCalFrames\**\*.*" />
+    </ItemGroup>
+    <Delete Files="@(OldWrongLocationFiles)" ContinueOnError="true" />
+  </Target>
+
+</Project>

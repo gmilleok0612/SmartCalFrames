@@ -30,9 +30,9 @@ using System.Runtime.InteropServices;
     "(brightness, exposure) pair, exposure is searched to hit your target ADU, and a one-click " +
     "batch or Advanced Sequencer instruction runs all four frame types unattended.")]
 [assembly: AssemblyMetadata("LongDescription",
-@"Smart Calibration Frames drives a motorized flat panel (via ASCOM CoverCalibrator)
-to capture a full set of calibration frames for each filter, from four dockable
-tabs or as an Advanced Sequencer instruction.
+@"Smart Calibration Frames drives a flat panel (via ASCOM CoverCalibrator) --
+motorized or manual -- to capture a full set of calibration frames for each
+filter, from four dockable tabs or as an Advanced Sequencer instruction.
 
 - Four dockable tabs: Run Flats, Flat Darks, Bias Frames, and Dark Frames.
 - Run All: a one-click batch strip that runs every enabled frame type in turn,

@@ -121,6 +121,22 @@
         <TextBlock Text="Run log folder:" Margin="0,6,0,0" FontWeight="SemiBold"/>
         <TextBlock Text="{Binding LogFileFolder}" TextWrapping="Wrap" Opacity="0.7" FontSize="11"/>
 
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,10,0,0">
+            <TextBlock Text="Pause for cover swap:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <CheckBox IsChecked="{Binding PauseForCoverSwap}" Style="{StaticResource SmartCalCheckBoxStyle}" VerticalAlignment="Center"/>
+        </StackPanel>
+        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="11" Margin="0,2,0,0">
+            <Run Text="For a panel with no motorized cover (a plain manual panel, or none at all): when on, capturing Flat Frames pauses and waits for you to click Continue TWICE - once right before capture starts (time to remove the cap and put the panel in place) and once right after it finishes (time to remove the panel and put the cap back on before Flat Darks/Bias/Dark Frames run). Applies to the dockable panel's Flats button, the Run All batch, and the Advanced Sequencer instruction's Flat Frames function alike. Leave this OFF if your panel has a real motorized cover - the automatic open/close guard already handles that hardware with no manual step. Works the same way whether or not the dockable panel has ever been opened this NINA session - a sequence run always shows its own pop-up dialog."/>
+        </TextBlock>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,10,0,0">
+            <TextBlock Text="Open cover after run complete:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <CheckBox IsChecked="{Binding OpenCoverAfterRun}" Style="{StaticResource SmartCalCheckBoxStyle}" VerticalAlignment="Center"/>
+        </StackPanel>
+        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="11" Margin="0,2,0,0">
+            <Run Text="For a MOTORIZED flat-panel cover only. This plugin always closes the cover before capturing, for a light-sealed frame. Off (default): once a run ends, the cover stays closed until you open it yourself. On: the cover is reopened automatically once the run finishes (single capture, Run All batch, or the sequencer item). Has no effect on a panel with no motorized cover, and is unrelated to Pause for cover swap above - that setting is about a manual panel/cap swap, this one is about what a motorized cover does after a run."/>
+        </TextBlock>
+
         <TextBlock Text="Per-filter defaults" Margin="0,10,0,0" FontWeight="Bold"/>
         <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="11" Margin="0,2,0,0">
             <Run Text="Each filter remembers exactly one brightness and one exposure. Set these to a reasonable starting point for each filter (for example, a short exposure for a broadband filter, a longer one for narrowband). When you run a filter, it's captured at these two values; if the result is outside Tolerance (above), exposure alone is adjusted (brightness never changes automatically) to bring it on target, within Min/Max Exposure. If it succeeds, these two values are automatically updated to whatever actually worked, so they stay accurate without you needing to maintain them by hand. If it can't reach target within Min/Max Exposure, nothing is saved for that filter and the run log reports a failure - in that case, try adjusting this filter's Brightness (most likely too high or too low) and run it again."/>

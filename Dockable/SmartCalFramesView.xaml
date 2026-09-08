@@ -136,12 +136,28 @@
              (Capture flat darks, Preview groups, etc.), all of which were always left at NINA's default
              and never reported as wrong. -->
     </UserControl.Resources>
+    <!-- ROUND 65 - the shared StatusText/RunLog area below the TabControl (Grid.Row="4" as of Round 67's
+         inserted pause-banner row; "3" at the time this was written) is a "*" row,
+         so it only ever gets whatever height is left over after the "Auto" rows above it (checkbox strip,
+         TabControl, separator) take what THEY need. Reported: the log appeared not to display at all
+         with the Dark Frames tab selected - that tab is the only one of the four with both the longest
+         description text AND a per-filter Binning/Frames/Exposure table (up to 220px tall, see the
+         ScrollViewer below), so on a docked panel that isn't very tall, its Auto-sized content could
+         consume all the available height and leave the "*" row nothing, while the other three
+         (shorter-content) tabs still left the log some room. Dark Frames WAS logging the whole time
+         (RunDarkFramesAsync appends to RunLog exactly like the other three run methods) - this was pure
+         layout starvation, not a missing/skipped log. Fixed with MinHeight on the "*" row below so the
+         log area can never be squeezed to nothing, and by shrinking the Dark Frames per-filter table's
+         own MaxHeight (220 -> 140) so it demands less room to begin with. -->
     <Grid Margin="8">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
+            <!-- ROUND 67 - "Pause for cover swap" banner (Grid.Row="1"), collapsed to zero height via
+                 its own Visibility binding whenever no pause is in progress - see that Border below. -->
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
-            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*" MinHeight="140"/>
         </Grid.RowDefinitions>
 
         <!-- ROUND 43 - "Run All" strip: queues and runs any combination of Flats/Flat Darks/Bias
@@ -210,8 +226,54 @@
                         Margin="0,0,6,4" Padding="8,3"/>
                 <Button Content="Stop" Command="{Binding StopCommand}"
                         FontSize="{Binding FontSize, ElementName=RunAllFlatsCheckBox}"
-                        IsEnabled="{Binding IsRunning}" Margin="0,0,0,4" Padding="8,3"/>
+                        IsEnabled="{Binding IsRunning}" Margin="0,0,20,4" Padding="8,3"/>
+
+                <!-- ROUND 67 - "Pause for cover swap": for a panel with no motorized cover (see
+                     SmartCalSettings.PauseForCoverSwap for the full explanation), pauses a Flats capture
+                     both right before it starts and right after it finishes so the user has time to swap
+                     the physical panel for a cap and back. Placed here (not just the Options page) so
+                     it's visible right where a run is started; both read/write the same stored value. -->
+                <CheckBox Content="Pause for cover swap" IsChecked="{Binding PauseForCoverSwap}"
+                          Style="{StaticResource SmartCalCheckBoxStyle}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                          VerticalAlignment="Center" Margin="0,0,14,4"/>
+
+                <!-- ROUND 72 - "Open cover after run complete": for a MOTORIZED flat-panel cover only (see
+                     SmartCalSettings.OpenCoverAfterRun for the full explanation). Off by default - the
+                     cover stays closed once a run ends, same as Round 69 - so this is purely opt-in: check
+                     it if you want the cover to reopen automatically instead. Unrelated to "Pause for
+                     cover swap" to its left, which is about a manual panel/cap swap, not a motorized
+                     cover. -->
+                <CheckBox Content="Open cover after run complete" IsChecked="{Binding OpenCoverAfterRun}"
+                          Style="{StaticResource SmartCalCheckBoxStyle}"
+                          IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                          VerticalAlignment="Center" Margin="0,0,0,4"/>
             </WrapPanel>
+        </Border>
+
+        <!-- ROUND 67 - shown only while a PauseForCoverSwapAsync call is waiting for Continue (see
+             SmartCalFramesVM.IsAwaitingCoverSwap). Its own Auto row (Grid.Row="1") right below the Run
+             All strip, ahead of the TabControl - a real grid row rather than overlaying the strip above,
+             so it can never visually collide with it. Collapsed (zero height) whenever no pause is in
+             progress, so it costs no space the rest of the time. Deliberately loud (bright background,
+             bold black text) since this is the one moment the run is silently doing nothing until a
+             human acts - unlike the rest of this panel's status text, which is easy to skim past mid-run.
+             ROUND 70 - background changed from the original amber (#FFB58900) to a lighter red
+             (#FFEF9A9A) per explicit feedback after real testing ("use a lighter red background rather
+             than yellow"). ROUND 71 - that lighter red was itself replaced with a darker, fully
+             saturated red (#FFFF0000) per a follow-up screenshot of the exact shade wanted ("can you
+             make it a darker red this shade"). This exact color is also used by the sequencer's own
+             pause dialog (see Templates/SmartCalDataTemplates.xaml's CoverSwapDialogResult template) so
+             both surfaces match, per the original Round 70 feedback ("same color red as the main
+             panel") - kept in sync again for this round's change. -->
+        <Border Grid.Row="1" Margin="0,0,0,8" Padding="6,4" Background="#FFFF0000"
+                Visibility="{Binding IsAwaitingCoverSwap, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <DockPanel LastChildFill="True">
+                <Button DockPanel.Dock="Right" Content="Continue" Command="{Binding ContinueAfterCoverSwapCommand}"
+                        Margin="8,0,0,0" Padding="10,3" FontWeight="Bold"/>
+                <TextBlock Text="{Binding CoverSwapMessage}" TextWrapping="Wrap" FontWeight="Bold"
+                           Foreground="Black" VerticalAlignment="Center"/>
+            </DockPanel>
         </Border>
 
         <!-- ROUND 36 - "Run" (flats) and "Flat Darks" now live as two tabs in the same panel, per
@@ -219,30 +281,33 @@
              tabs share the StatusText/RunLog area below the TabControl - one running log regardless of
              which tab started it, same as a manually-started flats run and a sequencer-driven one
              already share this panel's log (see SmartCalFramesVM.ClearForExternalRun/AppendExternalStatus). -->
-        <TabControl Grid.Row="1" Margin="0,0,0,8" Background="Transparent" BorderThickness="0">
+        <TabControl Grid.Row="2" Margin="0,0,0,8" Background="Transparent" BorderThickness="0">
             <TabItem Header="Run Flats" Style="{StaticResource SmartCalTabItemStyle}">
                 <!-- ROUND 47 - per explicit user direction: "Frames per filter" + "Adaptive (advanced)"
                      moved up to the Run All strip above (Grid.Row="0" of the outer Grid) - the row that
-                     used to hold them here is gone. The bottom "Run this filter"/"Run all filters"/
-                     "Stop" button row is also deleted outright: redundant now that "Run Selected"/"Stop"
-                     on the Run All strip cover the same actions. Filter dropdown, the filter-defaults
-                     summary text, and the Min/Max/note reveal (still driven by the SAME FlatAdaptiveMode
-                     binding, now toggled from the strip above) were explicitly told to stay untouched,
-                     so they're unchanged below - only renumbered since two rows were removed.
+                     used to hold them here is gone. Filter dropdown, the filter-defaults summary text, and
+                     the Min/Max/note reveal (still driven by the SAME FlatAdaptiveMode binding, now
+                     toggled from the strip above) were explicitly told to stay untouched, so they're
+                     unchanged below - only renumbered since rows were removed/added since.
 
-                     ONE REAL CAPABILITY LOSS from deleting "Run this filter" - flagged per explicit
-                     request to check for issues: that button ran ONLY the filter selected in the
-                     dropdown above (via the VM's since-removed RunSelectedCommand -> RunAsync(allFilters:
-                     false); ROUND 59 CLEANUP deleted that now-unused command from SmartCalFramesVM
-                     entirely, since nothing had bound to it since this button was removed here). The Run
-                     All strip's "Run Selected" button always runs FLATS ACROSS ALL FILTERS
-                     (RunSelectedBatchAsync -> RunAsync(allFilters:true, standalone:false) - the same
-                     path "Run all filters" used). There is now no button anywhere in this panel to
-                     capture just ONE hand-picked filter and skip the rest - the Filter dropdown above is
-                     now preview-only (drives FilterDefaultsSummary's brightness/exposure display) rather
-                     than a captureable selection. -->
+                     Round 47 ALSO deleted this tab's own "Run this filter"/"Run all filters"/"Stop"
+                     button row outright, on the assumption that "Run Selected"/"Stop" on the Run All strip
+                     above covered the same ground - flagged at the time as ONE REAL CAPABILITY LOSS (that
+                     old button could run just the single filter picked in the dropdown above; the Run All
+                     strip's "Run Selected" always runs FLATS ACROSS ALL FILTERS, same as "Run all filters"
+                     did - RunSelectedBatchAsync -> RunAsync(allFilters:true, standalone:false)), but left
+                     unfixed at the time since nothing had explicitly asked for it back yet.
+
+                     ROUND 66 - RESTORED, per explicit report that this was more than a discoverability
+                     gap: "Run selected runs ALL filters. No way to just run a single filter. It needs a
+                     Capture Flats button like the others." See the "Capture flats"/Stop button pair at the
+                     bottom of this tab's Grid (Grid.Row="3", added this round) and RunFlatsCommand ->
+                     RunAsync(allFilters:false) in SmartCalFramesVM - the exact same allFilters:false path
+                     the original (Round 59/61-deleted) RunSelectedCommand used to call, just under a name
+                     that doesn't collide with RunSelectedBatchCommand now that both exist side by side. -->
                 <Grid Margin="0,8,0,0">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -310,6 +375,24 @@
                     <TextBlock Grid.Row="2" Text="Stack stability threshold on the Options page controls early-stop within this range."
                                TextWrapping="Wrap" FontSize="10" Opacity="0.6" Margin="0,0,0,8"
                                Visibility="{Binding IsChecked, ElementName=FlatAdaptiveCheckBox, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+                    <!-- ROUND 66 - RESTORED, per explicit report ("Run selected runs ALL filters. No way
+                         to just run a single filter. It needs a Capture Flats button like the others").
+                         Every other tab (Flat Darks/Bias Frames/Dark Frames) has always had its own
+                         "Capture X"/Stop button pair right here; Round 47 deleted this tab's equivalent on
+                         the mistaken assumption that the Run All strip's "Run Selected" button covered the
+                         same ground - it doesn't, since that button always runs every filter in the wheel
+                         and can't target just the one picked in the "Filter:" dropdown above. This button
+                         captures ONLY that selected filter (RunFlatsCommand -> RunAsync(allFilters:
+                         false)), matching how "Capture flat darks"/"Capture bias frames"/"Capture dark
+                         frames" each run their own tab's own settings. -->
+                    <StackPanel Grid.Row="3" Orientation="Horizontal">
+                        <Button Content="Capture flats" Command="{Binding RunFlatsCommand}"
+                                IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
+                                Margin="0,0,6,0" Padding="8,3"/>
+                        <Button Content="Stop" Command="{Binding StopCommand}"
+                                IsEnabled="{Binding IsRunning}" Padding="8,3"/>
+                    </StackPanel>
                 </Grid>
             </TabItem>
 
@@ -409,7 +492,13 @@
                     <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.8"
                                Text="Captures dark frames matched to each filter's own light-frame settings (not the stored flat exposure, unlike Flat Darks). Set Binning/Frames/Exposure per filter below - a filter left at 0 frames is skipped; exposure must be at least 0.1s once you set a frame count above 0. Filters that agree on both exposure and binning share one capture pass, using the larger requested frame count. Uses the current camera gain/offset, no filter wheel move. The flat panel's light is turned off before capturing; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected). A summary of what was actually captured per group appears at the top once the run finishes, so a failed group is easy to spot."/>
 
-                    <ScrollViewer Grid.Row="1" MaxHeight="220" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8">
+                    <!-- ROUND 65 - MaxHeight reduced from 220 to 140: this per-filter table (unique to this
+                         tab - Flat Darks/Bias Frames have no equivalent) was, combined with this tab's own
+                         long description above, tall enough to starve the shared RunLog area below the
+                         TabControl of any visible height on a shorter docked panel. See the MinHeight note
+                         on this panel's outer Grid.Row="4" (Round 67 inserted a pause-banner row ahead
+                         of it, shifting it from "3") for the other half of that fix. -->
+                    <ScrollViewer Grid.Row="1" MaxHeight="140" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8">
                         <ItemsControl ItemsSource="{Binding DarkFrameRows}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
@@ -448,9 +537,9 @@
             </TabItem>
         </TabControl>
 
-        <Separator Grid.Row="2" Margin="0,0,0,8"/>
+        <Separator Grid.Row="3" Margin="0,0,0,8"/>
 
-        <Grid Grid.Row="3">
+        <Grid Grid.Row="4">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>

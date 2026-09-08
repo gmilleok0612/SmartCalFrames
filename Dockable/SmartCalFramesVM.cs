@@ -89,6 +89,26 @@ namespace SmartCalFrames.Dockable {
             RunLog = new ObservableCollection<string>();
             StopCommand = new RelayCommand(_ => _cts?.Cancel());
 
+            // ROUND 67 - "Pause for cover swap" manual-gear support (see PauseForCoverSwapAsync below
+            // and SmartCalSettings.PauseForCoverSwap). Continue only ever does anything while a pause is
+            // actually in progress (_coverSwapContinueSignal non-null) - a stray click otherwise (there's
+            // no Continue button visible anyway, IsAwaitingCoverSwap gates that) is just a no-op.
+            ContinueAfterCoverSwapCommand = new RelayCommand(_ => _coverSwapContinueSignal?.TrySetResult(true));
+
+            // ROUND 66 - "Run Flats" tab's own "Capture flats" button, RESTORED. Round 47 deleted this
+            // tab's bottom button row on the assumption that the "Run All" strip's "Run Selected" button
+            // (RunSelectedBatchCommand -> RunAsync(allFilters:true, standalone:false)) made it redundant -
+            // but that path ALWAYS runs every filter in the wheel; it can't target just the one filter
+            // picked in the dropdown above. Per explicit report ("Run selected runs ALL filters. No way
+            // to just run a single filter. It needs a Capture Flats button like the others") this was a
+            // real capability gap, not just a discoverability one - restoring a direct single-filter
+            // capture button here, same allFilters:false path the original (Round 59/61-deleted)
+            // RunSelectedCommand used to call, just under a name that matches this tab's sibling buttons
+            // (RunFlatDarksCommand/RunBiasFramesCommand/RunDarkFramesCommand below) instead of the old
+            // "RunSelectedCommand" name, which reads confusingly close to RunSelectedBatchCommand now
+            // that both exist side by side.
+            RunFlatsCommand = new AsyncCommand<bool>(() => RunAsync(allFilters: false));
+
             // ROUND 36 - "Flat Darks" tab. Reuses this SAME IsRunning/_cts/StopCommand as the flats
             // "Run" tab, deliberately - the two are mutually exclusive from this one panel (you can't
             // run flats and darks at once), and Stop already works for either without any new plumbing.
@@ -188,6 +208,57 @@ namespace SmartCalFrames.Dockable {
         public string FilterDefaultsSummary { get => _filterDefaultsSummary; set { _filterDefaultsSummary = value; RaisePropertyChanged(); } }
 
         public ICommand StopCommand { get; }
+
+        // ---- ROUND 67 - "Pause for cover swap" manual-gear support ----
+
+        /// <summary>Mirrors SmartCalSettings.PauseForCoverSwap onto the Run All strip, same "always
+        /// read/write through a fresh SmartCalSettingsProvider, no cached field" convention as
+        /// FlatFrameCount/DarkFramesPerGroup/BiasFrameCount above - editing this here or on the Options
+        /// page always reflects the same one stored value.</summary>
+        public bool PauseForCoverSwap {
+            get => new SmartCalSettingsProvider(_profileService).Load().PauseForCoverSwap;
+            set {
+                var provider = new SmartCalSettingsProvider(_profileService);
+                var s = provider.Load();
+                s.PauseForCoverSwap = value;
+                provider.Save(s);
+                RaisePropertyChanged();
+            }
+        }
+
+        /// <summary>ROUND 72 - mirrors SmartCalSettings.OpenCoverAfterRun onto the Run All strip, same
+        /// "always read/write through a fresh SmartCalSettingsProvider, no cached field" convention as
+        /// PauseForCoverSwap immediately above.</summary>
+        public bool OpenCoverAfterRun {
+            get => new SmartCalSettingsProvider(_profileService).Load().OpenCoverAfterRun;
+            set {
+                var provider = new SmartCalSettingsProvider(_profileService);
+                var s = provider.Load();
+                s.OpenCoverAfterRun = value;
+                provider.Save(s);
+                RaisePropertyChanged();
+            }
+        }
+
+        private bool _isAwaitingCoverSwap;
+        /// <summary>True while a PauseForCoverSwapAsync call is waiting for Continue - the panel's
+        /// Continue button binds its Visibility to this.</summary>
+        public bool IsAwaitingCoverSwap { get => _isAwaitingCoverSwap; private set { _isAwaitingCoverSwap = value; RaisePropertyChanged(); } }
+
+        private string _coverSwapMessage = string.Empty;
+        /// <summary>What to tell the user while paused - also mirrored into StatusText/RunLog, but kept
+        /// separately so the panel can show it prominently (e.g. next to the Continue button) regardless
+        /// of whatever else has since been appended to RunLog.</summary>
+        public string CoverSwapMessage { get => _coverSwapMessage; private set { _coverSwapMessage = value; RaisePropertyChanged(); } }
+
+        public ICommand ContinueAfterCoverSwapCommand { get; }
+
+        private TaskCompletionSource<bool> _coverSwapContinueSignal;
+
+        /// <summary>ROUND 66 - Run Flats tab's own "Capture flats" button. Runs RunAsync(allFilters:
+        /// false), i.e. just the filter currently selected in this tab's own dropdown (SelectedFilter) -
+        /// see the constructor comment for why this was restored.</summary>
+        public IAsyncCommand RunFlatsCommand { get; }
 
         // ---- ROUND 44 - Run Flats tab: "Frames per filter" simple control ----
         //
@@ -478,23 +549,69 @@ namespace SmartCalFrames.Dockable {
         }
 
         /// <summary>
-        /// Best-effort reopen, called from every run's finally block so a run that had to close a real
-        /// motorized cover doesn't leave the scope capped afterward - the scope should be ready to point
-        /// at the sky again once a calibration run finishes, not left covered by something this plugin
-        /// closed on its own. Same philosophy as SmartCalCaptureService's own ToggleLight(false) cleanup
-        /// (a project convention since Round 16): logged, never fatal, never allowed to mask whatever the
-        /// run's own real result was. A no-op (SupportsOpenClose false) for the White Dwarf and every
-        /// other calibrator-only panel - no cost for that hardware, same as the check above.
+        /// Called from every run's finally block, once the run has finished (successfully, cancelled, or
+        /// failed) - the counterpart to EnsureFlatPanelCoverClosedAsync above. ROUND 69 - per explicit
+        /// direction ("make sure the cover never opens - after a run - it should remain shut"), this
+        /// stopped reopening a motorized cover automatically; whatever was closed for the run stayed
+        /// closed. ROUND 72 - that's now the OFF (default) state of a new opt-in setting,
+        /// SmartCalSettings.OpenCoverAfterRun ("the user can have it any way they want") - read fresh here
+        /// so the Run All strip's own checkbox and the Options page always agree. Logged for visibility,
+        /// never fatal, never allowed to mask whatever the run's own real result was, same philosophy as
+        /// SmartCalCaptureService's own ToggleLight(false) cleanup (a project convention since Round 16).
+        /// A no-op (SupportsOpenClose false) for the White Dwarf and every other calibrator-only panel -
+        /// no cost for that hardware, same as the check above.
         ///
-        /// ROUND 40 - delegates to SmartCalRunPlanning.ReopenFlatPanelCoverBestEffortAsync, same reason
-        /// as EnsureFlatPanelCoverClosedAsync above.
+        /// ROUND 40 - delegates to SmartCalRunPlanning.LeaveFlatPanelCoverClosedAfterRunAsync (renamed in
+        /// ROUND 69 from ReopenFlatPanelCoverBestEffortAsync, same reason as EnsureFlatPanelCoverClosedAsync
+        /// above).
         /// </summary>
-        private async Task ReopenFlatPanelCoverBestEffortAsync() {
+        private async Task LeaveFlatPanelCoverClosedAfterRunAsync() {
             var progress = new Progress<ApplicationStatus>(s => {
                 if (string.IsNullOrWhiteSpace(s?.Status)) return;
                 RunLog.Add($"{DateTime.Now:HH:mm:ss}  {s.Status}");
             });
-            await SmartCalRunPlanning.ReopenFlatPanelCoverBestEffortAsync(_flatDeviceMediator, progress);
+            var openCoverAfterRun = new SmartCalSettingsProvider(_profileService).Load().OpenCoverAfterRun;
+            await SmartCalRunPlanning.LeaveFlatPanelCoverClosedAfterRunAsync(_flatDeviceMediator, progress, openCoverAfterRun);
+        }
+
+        /// <summary>
+        /// ROUND 67 - manual-gear counterpart to EnsureFlatPanelCoverClosedAsync/
+        /// LeaveFlatPanelCoverClosedAfterRunAsync above: those two handle a MOTORIZED flat-panel cover
+        /// automatically and are a complete no-op for hardware that has none (see
+        /// SmartCalRunPlanning.EnsureFlatPanelCoverClosedAsync's own note - the author's own White Dwarf
+        /// panel always reports SupportsOpenClose false). For that hardware the only way to keep a dark/
+        /// bias/flat-dark frame light-sealed is a separate physical cap the user places by hand, and the
+        /// only way to get the flat panel itself in front of the scope is the user putting IT there by
+        /// hand too - there's nothing to command over ASCOM either way. This halts the run at the given
+        /// point, shows `message` (StatusText, RunLog, and the dedicated CoverSwapMessage the panel's
+        /// Continue button sits next to), and waits for either a Continue click or the run being
+        /// cancelled - same `token` (this VM's own _cts.Token in every call site below) every other await
+        /// in this class already respects, so Stop during a pause behaves exactly like Stop during a real
+        /// exposure: an OperationCanceledException that the caller's existing try/catch already handles.
+        ///
+        /// Safe to call from a background thread - RunLog/StatusText/IsAwaitingCoverSwap/CoverSwapMessage
+        /// are all WPF-bound, so every write goes through Dispatcher.Invoke, same convention as
+        /// ClearForExternalRun/AppendExternalStatus below (Dispatcher.Invoke from the UI thread itself -
+        /// the case for every call site inside this VM - just runs synchronously in place, so this is
+        /// safe either way).
+        /// </summary>
+        private async Task PauseForCoverSwapAsync(string message, CancellationToken token) {
+            var signal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _coverSwapContinueSignal = signal;
+            System.Windows.Application.Current?.Dispatcher.Invoke(() => {
+                StatusText = message;
+                RunLog.Add($"{DateTime.Now:HH:mm:ss}  {message}");
+                CoverSwapMessage = message;
+                IsAwaitingCoverSwap = true;
+            });
+            using (token.Register(() => signal.TrySetCanceled(token))) {
+                try {
+                    await signal.Task;
+                } finally {
+                    _coverSwapContinueSignal = null;
+                    System.Windows.Application.Current?.Dispatcher.Invoke(() => IsAwaitingCoverSwap = false);
+                }
+            }
         }
 
         private void RefreshKnownFilters() {
@@ -583,6 +700,14 @@ namespace SmartCalFrames.Dockable {
                 if (standalone && !await EnsureFlatPanelCoverClosedAsync(_cts.Token)) return false;
 
                 var settings = provider.Load();
+
+                // ROUND 67 - "Pause for cover swap", before: gives the user time to remove the cap and
+                // put the flat panel in place before this capture actually starts. See
+                // SmartCalSettings.PauseForCoverSwap / PauseForCoverSwapAsync for the full explanation.
+                if (settings.PauseForCoverSwap) {
+                    await PauseForCoverSwapAsync("Paused - remove the cover and put the flat panel in place, then click Continue.", _cts.Token);
+                }
+
                 var service = new SmartCalCaptureService(
                     _cameraMediator, _filterWheelMediator, _flatDeviceMediator, _imagingMediator,
                     _imageSaveMediator, provider, settings);
@@ -613,6 +738,14 @@ namespace SmartCalFrames.Dockable {
                     var result = await service.RunAsync(filter, 1, 1, gain, offset, frameCounter, progress, _cts.Token);
                     StatusText = result.Summary;
                 }
+
+                // ROUND 67 - "Pause for cover swap", after: gives the user time to remove the flat panel
+                // and put the cap back on before whatever runs next (Flat Darks/Bias/Dark Frames) needs
+                // the scope light-sealed.
+                if (settings.PauseForCoverSwap) {
+                    await PauseForCoverSwapAsync("Paused - remove the flat panel and put the cover back on, then click Continue.", _cts.Token);
+                }
+
                 RefreshFilterDefaultsSummaryFor(SelectedFilter);
                 return true;
             } catch (OperationCanceledException) {
@@ -626,7 +759,7 @@ namespace SmartCalFrames.Dockable {
                 provider.SaveNextFrameNumber(frameCounter.Next);
                 if (standalone) {
                     IsRunning = false;
-                    await ReopenFlatPanelCoverBestEffortAsync();
+                    await LeaveFlatPanelCoverClosedAfterRunAsync();
                 }
             }
         }
@@ -740,7 +873,7 @@ namespace SmartCalFrames.Dockable {
                 provider.SaveNextFrameNumber(frameCounter.Next);
                 if (standalone) {
                     IsRunning = false;
-                    await ReopenFlatPanelCoverBestEffortAsync();
+                    await LeaveFlatPanelCoverClosedAfterRunAsync();
                 }
             }
         }
@@ -813,7 +946,7 @@ namespace SmartCalFrames.Dockable {
                 provider.SaveNextFrameNumber(frameCounter.Next);
                 if (standalone) {
                     IsRunning = false;
-                    await ReopenFlatPanelCoverBestEffortAsync();
+                    await LeaveFlatPanelCoverClosedAfterRunAsync();
                 }
             }
         }
@@ -826,7 +959,7 @@ namespace SmartCalFrames.Dockable {
         /// Structured to mirror RunFlatDarksAsync/RunBiasFramesAsync above as closely as possible - same
         /// pre-flight connectivity checks, same RunLog.Clear()-at-the-very-start behavior, same
         /// frame-counter persistence, same EnsureFlatPanelCoverClosedAsync/
-        /// ReopenFlatPanelCoverBestEffortAsync cover guard, same
+        /// LeaveFlatPanelCoverClosedAfterRunAsync cover guard, same
         /// try/catch(OperationCanceledException)/catch(Exception)/finally shape.
         ///
         /// ROUND 39 REVISION - end-of-run StatusText is now a per-group summary joined the same way
@@ -917,7 +1050,7 @@ namespace SmartCalFrames.Dockable {
                 provider.SaveNextFrameNumber(frameCounter.Next);
                 if (standalone) {
                     IsRunning = false;
-                    await ReopenFlatPanelCoverBestEffortAsync();
+                    await LeaveFlatPanelCoverClosedAfterRunAsync();
                 }
             }
         }
@@ -998,7 +1131,7 @@ namespace SmartCalFrames.Dockable {
                 return false;
             } finally {
                 IsRunning = false;
-                await ReopenFlatPanelCoverBestEffortAsync();
+                await LeaveFlatPanelCoverClosedAfterRunAsync();
             }
         }
     }

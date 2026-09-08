@@ -8,6 +8,7 @@ using Newtonsoft.Json;
 using NINA.Core.Model;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
+using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Equipment.MyCamera;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Profile.Interfaces;
@@ -73,6 +74,20 @@ namespace SmartCalFrames.Sequencer {
         // constructor.
         private readonly IImageHistoryVM _imageHistoryVM;
 
+        // ROUND 68 - for the "Pause for cover swap" dialog (PauseForCoverSwapAsync below). Confirmed as
+        // a valid plain [ImportingConstructor] parameter two independent ways: (1) a dnfile signature
+        // dump of the installed NINA.Core.dll/NINA.Sequencer.dll shows NINA's OWN built-in "Message Box"
+        // sequence item (NINA.Sequencer.SequenceItem.Utility.MessageBox) takes exactly
+        // IWindowServiceFactory this same way - "public void .ctor(IWindowServiceFactory
+        // windowServiceFactory)"; (2) fetching that class's real source
+        // (raw.githubusercontent.com/isbeorn/nina/develop/NINA.Sequencer/SequenceItem/Utility/
+        // MessageBox.cs) confirms the exact usage: `windowServiceFactory.Create()` returns an
+        // IWindowService, `new MessageBoxResult(text)` is the "content", and
+        // `await service.ShowDialog(msgBoxResult, title)` shows it and awaits the user's Continue/Cancel
+        // click - with `token.Register(() => service?.Close())` handling cancellation. This is the exact
+        // pattern PauseForCoverSwapAsync below replicates.
+        private readonly IWindowServiceFactory _windowServiceFactory;
+
         [ImportingConstructor]
         public SmartCalSequenceItem(
             IProfileService profileService,
@@ -81,7 +96,8 @@ namespace SmartCalFrames.Sequencer {
             IFlatDeviceMediator flatDeviceMediator,
             IImagingMediator imagingMediator,
             IImageSaveMediator imageSaveMediator,
-            IImageHistoryVM imageHistoryVM) {
+            IImageHistoryVM imageHistoryVM,
+            IWindowServiceFactory windowServiceFactory) {
             _profileService = profileService;
             _cameraMediator = cameraMediator;
             _filterWheelMediator = filterWheelMediator;
@@ -89,12 +105,13 @@ namespace SmartCalFrames.Sequencer {
             _imagingMediator = imagingMediator;
             _imageSaveMediator = imageSaveMediator;
             _imageHistoryVM = imageHistoryVM;
+            _windowServiceFactory = windowServiceFactory;
         }
 
         private SmartCalSequenceItem(SmartCalSequenceItem cloneMe) : this(
             cloneMe._profileService, cloneMe._cameraMediator, cloneMe._filterWheelMediator,
             cloneMe._flatDeviceMediator, cloneMe._imagingMediator, cloneMe._imageSaveMediator,
-            cloneMe._imageHistoryVM) {
+            cloneMe._imageHistoryVM, cloneMe._windowServiceFactory) {
             CopyMetaData(cloneMe);
             CaptureFlats = cloneMe.CaptureFlats;
             RunAllFilters = cloneMe.RunAllFilters;
@@ -300,12 +317,14 @@ namespace SmartCalFrames.Sequencer {
             // one Execute() call, same reasoning.
             var frameCounter = new FrameSequenceCounter { Next = settingsProvider.LoadNextFrameNumber() };
             try {
-                // ROUND 40 - one cover close (and, in the finally below, one reopen) covering every
-                // checked function in this single Execute() call, not one per function - this whole call
-                // is one user-initiated action (one item dragged into the sequence), the same "once per
-                // action" granularity EnsureFlatPanelCoverClosedAsync already uses for the dockable
-                // panel's Run buttons. This item previously had NO cover guard at all (a gap from Round
-                // 38, which only wired it into the dockable panel) - closed here as part of this round.
+                // ROUND 40 - one cover close covering every checked function in this single Execute()
+                // call, not one per function - this whole call is one user-initiated action (one item
+                // dragged into the sequence), the same "once per action" granularity
+                // EnsureFlatPanelCoverClosedAsync already uses for the dockable panel's Run buttons. This
+                // item previously had NO cover guard at all (a gap from Round 38, which only wired it
+                // into the dockable panel) - closed here as part of this round. ROUND 69 - the cover is
+                // deliberately NOT reopened in the finally below anymore; see
+                // LeaveFlatPanelCoverClosedAfterRunAsync's own doc comment.
                 if (!await SmartCalRunPlanning.EnsureFlatPanelCoverClosedAsync(_flatDeviceMediator, mirroredProgress, token)) {
                     return;
                 }
@@ -316,7 +335,17 @@ namespace SmartCalFrames.Sequencer {
                 // this round's other per-group/per-filter resilience (RunAllFiltersAsync for flats,
                 // RunDarkFramesAsync's per-group try/catch).
                 if (CaptureFlats) {
+                    // ROUND 67/68 - "Pause for cover swap" (see SmartCalSettings.PauseForCoverSwap):
+                    // bracket the Flat Frames function with a real modal dialog (PauseForCoverSwapAsync
+                    // below) so this works from an unattended sequence run regardless of whether the
+                    // dockable panel has ever been opened this NINA session.
+                    if (settings.PauseForCoverSwap) {
+                        await PauseForCoverSwapAsync("Remove the cover and put the flat panel in place, then click Continue.", mirroredProgress, token);
+                    }
                     await RunFlatsFunctionAsync(service, frameCounter, mirroredProgress, token);
+                    if (settings.PauseForCoverSwap) {
+                        await PauseForCoverSwapAsync("Remove the flat panel and put the cover back on, then click Continue.", mirroredProgress, token);
+                    }
                 }
                 if (CaptureFlatDarks) {
                     await RunFlatDarksFunctionAsync(service, settingsProvider, settings, frameCounter, mirroredProgress, token);
@@ -329,7 +358,52 @@ namespace SmartCalFrames.Sequencer {
                 }
             } finally {
                 settingsProvider.SaveNextFrameNumber(frameCounter.Next);
-                await SmartCalRunPlanning.ReopenFlatPanelCoverBestEffortAsync(_flatDeviceMediator, mirroredProgress);
+                // ROUND 72 - settings was already loaded above (for PauseForCoverSwap); OpenCoverAfterRun
+                // is read from that same snapshot rather than reloading, matching how settings is already
+                // reused for every function's own settings needs in this method.
+                await SmartCalRunPlanning.LeaveFlatPanelCoverClosedAfterRunAsync(_flatDeviceMediator, mirroredProgress, settings.OpenCoverAfterRun);
+            }
+        }
+
+        /// <summary>
+        /// ROUND 68 - shows a real, modal NINA dialog and awaits the user's Continue/Cancel click,
+        /// independent of whether the dockable panel has ever been opened this session. This replaces
+        /// Round 67's SmartCalFramesVM.Instance-routed version, which silently skipped the pause entirely
+        /// if the panel had never been opened (a real gap for an unattended sequence-only workflow -
+        /// "how could someone not open a dockable panel?" is exactly the case this fixes). Confirmed
+        /// working end-to-end by the user's own real NINA test.
+        ///
+        /// Mechanism confirmed two independent ways before writing this, per this project's standing
+        /// rule of never guessing NINA SDK behavior: (1) a dnfile metadata dump of the user's own
+        /// installed NINA.Core.dll/NINA.Sequencer.dll (3.2.0.9001) shows NINA's built-in "Message Box"
+        /// sequence item takes IWindowServiceFactory via [ImportingConstructor] and that
+        /// IWindowService.ShowDialog(object content, string title, ...) returns an awaitable
+        /// IDispatcherOperationWrapper; (2) that built-in item's real source (isbeorn/nina,
+        /// NINA.Sequencer/SequenceItem/Utility/MessageBox.cs) shows the exact call shape used here -
+        /// `windowServiceFactory.Create()` for the content, `await service.ShowDialog(result, title)`,
+        /// and `token.Register(() => service?.Close())` to force the dialog closed if the sequence is
+        /// stopped while it's up.
+        ///
+        /// ROUND 70 - the content object changed from NINA's own MessageBoxResult to this plugin's own
+        /// CoverSwapDialogResult (see that class's own doc comment for why: real testing found the stock
+        /// NINA dialog too narrow/tall and the wrong color, none of which NINA's own type/template lets
+        /// this plugin control). Behavior is otherwise identical - Cancel still stops the whole sequence
+        /// (via ItemUtility.GetRootContainer(...).Interrupt()), matching NINA's own built-in item's
+        /// Continue/Cancel semantics.
+        /// </summary>
+        private async Task PauseForCoverSwapAsync(string message, IProgress<ApplicationStatus> progress, CancellationToken token) {
+            progress.Report(new ApplicationStatus { Status = $"Smart Calibration Frames: Paused - {message}" });
+            var dialogService = _windowServiceFactory.Create();
+            var dialogResult = new CoverSwapDialogResult(message, dialogService);
+            using (token.Register(() => dialogService?.Close())) {
+                await dialogService.ShowDialog(dialogResult, "Smart Calibration Frames");
+            }
+            token.ThrowIfCancellationRequested();
+
+            if (!dialogResult.Continue) {
+                Logger.Info("Smart Calibration Frames: \"Pause for cover swap\" dialog was cancelled - stopping the sequence.");
+                var root = NINA.Sequencer.Utility.ItemUtility.GetRootContainer(this.Parent);
+                root?.Interrupt();
             }
         }
 

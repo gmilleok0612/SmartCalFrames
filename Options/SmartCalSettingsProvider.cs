@@ -53,6 +53,7 @@ namespace SmartCalFrames.Options {
                 LogToFileEnabled = a.GetValueBoolean(nameof(SmartCalSettings.LogToFileEnabled), d.LogToFileEnabled),
                 DarkFramesPerGroup = a.GetValueInt32(nameof(SmartCalSettings.DarkFramesPerGroup), d.DarkFramesPerGroup),
                 BiasFrameCount = a.GetValueInt32(nameof(SmartCalSettings.BiasFrameCount), d.BiasFrameCount),
+                PauseForCoverSwap = a.GetValueBoolean(nameof(SmartCalSettings.PauseForCoverSwap), d.PauseForCoverSwap),
             };
         }
 
@@ -73,6 +74,7 @@ namespace SmartCalFrames.Options {
             a.SetValueBoolean(nameof(SmartCalSettings.LogToFileEnabled), settings.LogToFileEnabled);
             a.SetValueInt32(nameof(SmartCalSettings.DarkFramesPerGroup), settings.DarkFramesPerGroup);
             a.SetValueInt32(nameof(SmartCalSettings.BiasFrameCount), settings.BiasFrameCount);
+            a.SetValueBoolean(nameof(SmartCalSettings.PauseForCoverSwap), settings.PauseForCoverSwap);
         }
 
         // ---- Per-filter defaults ----

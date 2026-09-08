@@ -117,5 +117,37 @@ namespace SmartCalFrames.Options {
         // connected camera's real minimum exposure - CameraInfo.ExposureMin. Bias capture reads that
         // live at run time (see SmartCalRunPlanning.ResolveBiasExposureSeconds) instead of asking the
         // user to guess/type a value - no stored setting needed for it at all.
+
+        // ---- Manual cover swap ----
+        /// <summary>
+        /// Off by default. EnsureFlatPanelCoverClosedAsync/LeaveFlatPanelCoverClosedAfterRunAsync already
+        /// handle a MOTORIZED flat-panel cover automatically (close before a run, and - per
+        /// OpenCoverAfterRun below, default leaving it closed afterward) - but a plain
+        /// panel with no motorized cover at all (e.g. the author's own White Dwarf, which always reports
+        /// SupportsOpenClose false - see SmartCalRunPlanning's own note on that) makes that guard a
+        /// complete no-op, and the only way to keep a dark/bias/flat-dark frame light-sealed on that
+        /// hardware is a separate physical cap the user has to walk over and place by hand. When this is
+        /// on, a Flats capture (dockable panel button, Run All batch item, or the sequencer item's Flat
+        /// Frames function) pauses and waits for the user to click Continue TWICE per run: once right
+        /// before capturing (time to remove the cap and put the panel in place) and once right after
+        /// (time to remove the panel and put the cap back on) - see SmartCalFramesVM.PauseForCoverSwapAsync.
+        /// Users with a real motorized cover leave this off; the automatic guard already does their job
+        /// with no manual step at all.
+        /// </summary>
+        public bool PauseForCoverSwap { get; set; } = false;
+
+        // ---- Cover open-after-run ----
+        /// <summary>
+        /// ROUND 72. Off by default, matching Round 69's "never reopen automatically" behavior for anyone
+        /// who doesn't touch this setting. When turned ON, LeaveFlatPanelCoverClosedAfterRunAsync commands
+        /// a MOTORIZED flat-panel cover back open once a run finishes (single-filter Flats/Flat Darks/
+        /// Bias/Dark Frames, the Run All batch, or the sequencer item) - the same "reopen, best-effort,
+        /// never throw" behavior this plugin had before Round 69, now opt-in instead of automatic. A
+        /// complete no-op either way for a panel with no motorized cover (SupportsOpenClose false), same
+        /// as EnsureFlatPanelCoverClosedAsync/LeaveFlatPanelCoverClosedAfterRunAsync's own close-side
+        /// check. Unrelated to PauseForCoverSwap above - that's for a MANUAL panel/cap swap; this is only
+        /// about what a MOTORIZED cover does once a run ends.
+        /// </summary>
+        public bool OpenCoverAfterRun { get; set; } = false;
     }
 }

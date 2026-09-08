@@ -13,8 +13,8 @@ using System.Runtime.InteropServices;
 // NINA uses it to identify updates vs. a brand-new plugin.
 [assembly: Guid("8970f75b-3138-40f1-80d4-4d1898da383e")]
 
-[assembly: AssemblyVersion("1.0.0.0")]
-[assembly: AssemblyFileVersion("1.0.0.0")]
+[assembly: AssemblyVersion("1.0.0.1")]
+[assembly: AssemblyFileVersion("1.0.0.1")]
 
 // ---- NINA plugin manifest metadata ----
 // These AssemblyMetadata attributes are what NINA's plugin manager (and the

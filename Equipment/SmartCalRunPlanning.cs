@@ -24,8 +24,8 @@ namespace SmartCalFrames.Equipment {
     /// same reason).
     ///
     /// SmartCalFramesVM's own BuildDarkGroups/BuildDarkFrameGroups/FindMisconfiguredDarkFrameFilters/
-    /// ResolveBiasExposureSeconds/EnsureFlatPanelCoverClosedAsync/ReopenFlatPanelCoverBestEffortAsync now
-    /// all delegate to the methods here instead of holding their own copies - see the (much shorter)
+    /// ResolveBiasExposureSeconds/EnsureFlatPanelCoverClosedAsync/LeaveFlatPanelCoverClosedAfterRunAsync
+    /// now all delegate to the methods here instead of holding their own copies - see the (much shorter)
     /// versions left in SmartCalFramesVM.cs.
     /// </summary>
     public static class SmartCalRunPlanning {
@@ -126,7 +126,9 @@ namespace SmartCalFrames.Equipment {
         }
 
         // ---- Motorized-cover guard (moved from SmartCalFramesVM.EnsureFlatPanelCoverClosedAsync/
-        // ReopenFlatPanelCoverBestEffortAsync, ROUND 38) ----
+        // ReopenFlatPanelCoverBestEffortAsync, ROUND 38; the reopen half was retired in ROUND 69, then
+        // brought back as an opt-in setting in ROUND 72 - see LeaveFlatPanelCoverClosedAfterRunAsync
+        // below) ----
 
         /// <summary>Same logic as SmartCalFramesVM.EnsureFlatPanelCoverClosedAsync, generalized to report
         /// through a plain IProgress instead of touching StatusText/RunLog directly, so both the dockable
@@ -161,16 +163,59 @@ namespace SmartCalFrames.Equipment {
             return true;
         }
 
-        /// <summary>Same logic as SmartCalFramesVM.ReopenFlatPanelCoverBestEffortAsync: best-effort,
-        /// never throws, no-op for a panel without a motorized cover.</summary>
-        public static async Task ReopenFlatPanelCoverBestEffortAsync(IFlatDeviceMediator flatDeviceMediator, IProgress<ApplicationStatus> progress) {
+        /// <summary>
+        /// ROUND 69 - previously named ReopenFlatPanelCoverBestEffortAsync and, true to that name,
+        /// unconditionally reopened a motorized flat panel's cover after every run (on the assumption that
+        /// calibration frames are typically shot before lights, so the scope should be ready to point at
+        /// the sky again the moment a run ends). Per explicit direction at the time ("make sure the cover
+        /// never opens - after a run - it should remain shut"), automatic reopening was removed outright.
+        ///
+        /// ROUND 72 - brought back as an explicit opt-in, per a follow-up request ("add that option next
+        /// to the cover option: checkbox, open cover after run complete, and the user can have it any way
+        /// they want"): SmartCalSettings.OpenCoverAfterRun, default OFF, so anyone who never touches the
+        /// new checkbox keeps exactly the Round 69 "stays closed" behavior with zero change. When the
+        /// caller passes <paramref name="openCoverAfterRun"/> true, this reopens the cover the same
+        /// best-effort way the pre-Round-69 code did (never throws, reports a status line either way) -
+        /// see ReopenFlatPanelCoverAsync below for that half. When false, behavior is identical to Round
+        /// 69: the cover simply stays however EnsureFlatPanelCoverClosedAsync left it, with a status line
+        /// reported for visibility. Either way this is a no-op (no status line at all) for a panel without
+        /// a motorized cover - there is nothing this plugin ever opened or closed on that hardware to
+        /// report on.
+        /// </summary>
+        public static Task LeaveFlatPanelCoverClosedAfterRunAsync(
+                IFlatDeviceMediator flatDeviceMediator, IProgress<ApplicationStatus> progress, bool openCoverAfterRun) {
+            if (openCoverAfterRun) {
+                return ReopenFlatPanelCoverAsync(flatDeviceMediator, progress);
+            }
+            try {
+                var info = flatDeviceMediator.GetInfo();
+                if (info != null && info.SupportsOpenClose) {
+                    progress.Report(new ApplicationStatus { Status = "Leaving the flat panel cover closed (it will not be reopened automatically)." });
+                }
+            } catch (Exception ex) {
+                Logger.Warning($"Smart Calibration Frames: could not read the flat panel's cover state during cleanup: {ex.Message}. The cover was not commanded either way.");
+            }
+            return Task.CompletedTask;
+        }
+
+        /// <summary>
+        /// ROUND 72 - the "OpenCoverAfterRun is on" half of LeaveFlatPanelCoverClosedAfterRunAsync above.
+        /// Identical logic to this project's own pre-Round-69 ReopenFlatPanelCoverBestEffortAsync (a
+        /// previously build-confirmed call shape, not new/unverified): best-effort, never throws, no-op
+        /// for a panel without a motorized cover, no-op if the cover already reports Open. Uses a
+        /// do-nothing IProgress for the OpenCover call itself (matching the original) so this method's own
+        /// single summary status line - not NINA's own per-step cover-motion chatter - is what the run log
+        /// shows, then reports that summary via the real <paramref name="progress"/> once the command
+        /// completes.
+        /// </summary>
+        private static async Task ReopenFlatPanelCoverAsync(IFlatDeviceMediator flatDeviceMediator, IProgress<ApplicationStatus> progress) {
             try {
                 var info = flatDeviceMediator.GetInfo();
                 if (info == null || !info.SupportsOpenClose) return;
                 if (info.CoverState == CoverState.Open) return;
                 var doNothingProgress = new Progress<ApplicationStatus>(_ => { });
                 await flatDeviceMediator.OpenCover(doNothingProgress, CancellationToken.None);
-                progress.Report(new ApplicationStatus { Status = "Reopened the flat panel cover." });
+                progress.Report(new ApplicationStatus { Status = "Reopened the flat panel cover (per the \"Open cover after run complete\" setting)." });
             } catch (Exception ex) {
                 Logger.Warning($"Smart Calibration Frames: failed to reopen the flat panel cover during cleanup: {ex.Message}. Manually verify the cover state before pointing at the sky.");
             }

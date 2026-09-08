@@ -22,8 +22,19 @@ maintainer of this plugin per NINA's plugin manifest guidelines.
   darks) for unattended multi-filter batches, with an optional "match dark exposures to light
   frames" mode that pulls exposure times from the current imaging history, and support for a
   motorized flat-panel cover guard.
+- **Cover behavior after a run (your choice):** for a motorized flat-panel cover, this plugin always
+  closes it before capturing, so every calibration frame is light-sealed. What happens once the run
+  ends is a checkbox — "Open cover after run complete" (Options page and the Run All strip). Off by
+  default: the cover stays shut until you open it yourself. On: it's reopened automatically the
+  moment the run finishes.
 - **Stacking sufficiency:** keeps shooting until the running stack settles below a stability
   threshold (or a configured max is reached), rejecting outlier frames along the way.
+- **Pause for cover swap (optional):** for a panel with no motorized cover, pauses a Flats capture
+  both right before it starts and right after it finishes, waiting for you to click Continue so you
+  have time to swap the physical panel for a cap and back. From the dockable panel this shows as an
+  on-screen banner; from the Advanced Sequencer it pops up a real NINA dialog, so it works the same
+  way whether or not the dockable panel is open. Off by default — leave it off if your panel has a
+  real motorized cover, since the automatic open/close guard already handles that hardware.
 - **Explicit failure reporting:** a filter that can't reach target ADU within the configured
   exposure bounds fails loudly and leaves its saved defaults untouched, rather than silently
   accepting an out-of-range result.

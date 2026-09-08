@@ -164,6 +164,23 @@ namespace SmartCalFrames.Options {
             set { _settings.LogToFileEnabled = value; Persist(); }
         }
 
+        /// <summary>See SmartCalSettings.PauseForCoverSwap for the full explanation. Also mirrored on
+        /// the dockable panel's Run All strip (SmartCalFramesVM.PauseForCoverSwap) so it's visible right
+        /// where a run is started, not just buried on this page - both read/write the exact same stored
+        /// value through their own SmartCalSettingsProvider, so either page always reflects the other.</summary>
+        public bool PauseForCoverSwap {
+            get => _settings.PauseForCoverSwap;
+            set { _settings.PauseForCoverSwap = value; Persist(); }
+        }
+
+        /// <summary>See SmartCalSettings.OpenCoverAfterRun for the full explanation (Round 72). Also
+        /// mirrored on the dockable panel's Run All strip (SmartCalFramesVM.OpenCoverAfterRun), same
+        /// "both pages read/write the same stored value" convention as PauseForCoverSwap above.</summary>
+        public bool OpenCoverAfterRun {
+            get => _settings.OpenCoverAfterRun;
+            set { _settings.OpenCoverAfterRun = value; Persist(); }
+        }
+
         /// <summary>
         /// One row per filter in the active profile's filter wheel, each holding that filter's
         /// remembered (Brightness, ExposureSeconds) pair. See FilterDefaultRowVM and

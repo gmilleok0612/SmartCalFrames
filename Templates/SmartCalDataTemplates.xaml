@@ -275,6 +275,35 @@
         </nina:SequenceBlockView>
     </DataTemplate>
 
+    <!-- ROUND 70 - the visual template for SmartCalSequenceItem.PauseForCoverSwapAsync's dialog content
+         (seq:CoverSwapDialogResult - see that class's own doc comment for why this plugin uses its own
+         type/template here instead of NINA's own MessageBoxResult). Confirmed via a targeted dnfile IL
+         disassembly of the installed NINA.Core.dll's WindowService.GenerateWindow that the dialog Window
+         uses SizeToContent (plus a MinWidth/MinHeight floor it applies internally, not something this
+         plugin can change) rather than a fixed size - so this template's own explicit root Width is what
+         actually controls the rendered dialog's width, and keeping the layout compact (no extra vertical
+         padding beyond what's needed to read the message and reach the buttons) is what controls its
+         height. Background color deliberately matches the dockable panel's own pause banner
+         (SmartCalFramesView.xaml) per explicit feedback after real testing - both are changed together
+         so they can't drift apart. ROUND 71 - changed from the original lighter red (#FFEF9A9A) to a
+         darker, fully saturated red (#FFFF0000) per a follow-up screenshot of the exact shade wanted.
+         Buttons have no local Style (same convention as the dockable panel's own Continue button - see
+         SmartCalRunPlanning §3.5-style note elsewhere in this project's KB), so they keep NINA's ambient
+         button chrome automatically. -->
+    <DataTemplate DataType="{x:Type seq:CoverSwapDialogResult}">
+        <Border Background="#FFFF0000" Padding="16" Width="440">
+            <StackPanel>
+                <TextBlock Text="{Binding Message}" TextWrapping="Wrap" FontWeight="Bold" Foreground="Black"
+                           Margin="0,0,0,12"/>
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                    <Button Content="Continue" Command="{Binding ContinueCommand}" FontWeight="Bold"
+                            Padding="14,4" MinWidth="80" Margin="0,0,8,0"/>
+                    <Button Content="Cancel" Command="{Binding CancelCommand}" Padding="14,4" MinWidth="80"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </DataTemplate>
+
     <!-- ROUND 41 - this is the SECONDARY "Mini Sequencer" widget template (a different, glance-only
          surface, not the Advanced Sequencer tree above). Content wrapped in
          mini:MiniSequenceItem.SequenceItemContent per the reference plugin's convention. Kept

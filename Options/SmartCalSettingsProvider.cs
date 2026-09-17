@@ -54,6 +54,7 @@ namespace SmartCalFrames.Options {
                 DarkFramesPerGroup = a.GetValueInt32(nameof(SmartCalSettings.DarkFramesPerGroup), d.DarkFramesPerGroup),
                 BiasFrameCount = a.GetValueInt32(nameof(SmartCalSettings.BiasFrameCount), d.BiasFrameCount),
                 PauseForCoverSwap = a.GetValueBoolean(nameof(SmartCalSettings.PauseForCoverSwap), d.PauseForCoverSwap),
+                OpenCoverAfterRun = a.GetValueBoolean(nameof(SmartCalSettings.OpenCoverAfterRun), d.OpenCoverAfterRun),
             };
         }
 
@@ -75,6 +76,7 @@ namespace SmartCalFrames.Options {
             a.SetValueInt32(nameof(SmartCalSettings.DarkFramesPerGroup), settings.DarkFramesPerGroup);
             a.SetValueInt32(nameof(SmartCalSettings.BiasFrameCount), settings.BiasFrameCount);
             a.SetValueBoolean(nameof(SmartCalSettings.PauseForCoverSwap), settings.PauseForCoverSwap);
+            a.SetValueBoolean(nameof(SmartCalSettings.OpenCoverAfterRun), settings.OpenCoverAfterRun);
         }
 
         // ---- Per-filter defaults ----

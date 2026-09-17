@@ -378,7 +378,9 @@ namespace SmartCalFrames.Equipment {
                 // per-filter starting exposure (read inside ConvergeOnTargetAsync) was correct all along.
                 // Now logs the SAME per-filter values ConvergeOnTargetAsync is about to read, so this
                 // first line of the run's log matches reality instead of a fossil from an earlier design.
-                int startingBrightness = _settingsProvider.GetFilterBrightness(key.FilterName, _settings.MinBrightness);
+                int startingBrightness = ClampBrightnessToLimits(
+                    _settingsProvider.GetFilterBrightness(key.FilterName, _settings.MinBrightness),
+                    "starting brightness (pre-run bracket)");
                 // ROUND 44 - fallback changed from MinExposureSeconds to PreferredExposureSeconds: a
                 // never-converged filter now starts its search from a user-chosen realistic exposure
                 // (matters most for CCDs, which need much more than the old 0.1s floor to get a
@@ -612,9 +614,15 @@ namespace SmartCalFrames.Equipment {
                 try {
                     await _flatDeviceMediator.ToggleLight(false, progress, token);
                 } catch (Exception onEx) {
-                    string onFailLine = $"Smart Calibration Frames: flat-darks - could not confirm the flat panel's light is off before starting: {onEx.Message}. Continuing - verify manually if frames look wrong.";
-                    Logger.Warning(onFailLine);
+                    // Darkness could not be confirmed - a "flat dark" captured with the panel still lit
+                    // would silently become an illuminated frame saved and used as a calibration dark, so
+                    // (per mediator direction) this aborts the whole call rather than continuing with an
+                    // unverified light state. The outer finally below still makes its own best-effort
+                    // ToggleLight(false) attempt during cleanup.
+                    string onFailLine = $"Smart Calibration Frames: flat-darks - could not confirm the flat panel's light is off before starting - aborting rather than risk saving illuminated frames as darks: {onEx.Message}";
+                    Logger.Error(onFailLine);
                     WriteToLogFile(onFailLine);
+                    throw new InvalidOperationException(onFailLine, onEx);
                 }
 
                 foreach (var exposure in uniqueExposures) {
@@ -720,9 +728,13 @@ namespace SmartCalFrames.Equipment {
                 try {
                     await _flatDeviceMediator.ToggleLight(false, progress, token);
                 } catch (Exception onEx) {
-                    string onFailLine = $"Smart Calibration Frames: dark frames - could not confirm the flat panel's light is off before starting: {onEx.Message}. Continuing - verify manually if frames look wrong.";
-                    Logger.Warning(onFailLine);
+                    // Same "abort rather than risk an illuminated frame saved as a dark" reasoning as
+                    // RunFlatDarksAsync above - darkness could not be confirmed for ANY group in this
+                    // call, so none of them should proceed.
+                    string onFailLine = $"Smart Calibration Frames: dark frames - could not confirm the flat panel's light is off before starting - aborting rather than risk saving illuminated frames as darks: {onEx.Message}";
+                    Logger.Error(onFailLine);
                     WriteToLogFile(onFailLine);
+                    throw new InvalidOperationException(onFailLine, onEx);
                 }
 
                 foreach (var group in groups) {
@@ -825,9 +837,12 @@ namespace SmartCalFrames.Equipment {
                 try {
                     await _flatDeviceMediator.ToggleLight(false, progress, token);
                 } catch (Exception onEx) {
-                    string onFailLine = $"Smart Calibration Frames: bias frames - could not confirm the flat panel's light is off before starting: {onEx.Message}. Continuing - verify manually if frames look wrong.";
-                    Logger.Warning(onFailLine);
+                    // Same "abort rather than risk an illuminated frame saved as a bias/dark" reasoning as
+                    // RunFlatDarksAsync/RunDarkFramesAsync above.
+                    string onFailLine = $"Smart Calibration Frames: bias frames - could not confirm the flat panel's light is off before starting - aborting rather than risk saving illuminated frames as bias: {onEx.Message}";
+                    Logger.Error(onFailLine);
                     WriteToLogFile(onFailLine);
+                    throw new InvalidOperationException(onFailLine, onEx);
                 }
 
                 string startLine = $"Smart Calibration Frames: starting {frameCount} bias frame(s) at {exposureSeconds:F4}s (bin{binningX}x{binningY}, gain {gain}, offset {offset}).";
@@ -963,7 +978,9 @@ namespace SmartCalFrames.Equipment {
             const int oscillationBrightnessNudgeStep = 2;
             const int maxOscillationNudges = 3;
 
-            int brightness = _settingsProvider.GetFilterBrightness(key.FilterName, _settings.MinBrightness);
+            int brightness = ClampBrightnessToLimits(
+                _settingsProvider.GetFilterBrightness(key.FilterName, _settings.MinBrightness),
+                "starting brightness (search init)");
             // ROUND 44 - fallback changed from MinExposureSeconds to PreferredExposureSeconds (see the
             // matching comment above this method's caller, RunAsync, for the full reasoning). Still
             // clamped to Min/Max exposure immediately below - Preferred only changes where an unconverged
@@ -1243,6 +1260,51 @@ namespace SmartCalFrames.Equipment {
             }
         }
 
+        /// <summary>
+        /// Per mediator review: a filter's REMEMBERED brightness (SmartCalSettingsProvider.
+        /// GetFilterBrightness) can predate the current Min/MaxBrightness settings - e.g. a filter saved
+        /// at 180 stays 180 in storage even after the user lowers Max Brightness to 100 - and unlike
+        /// exposure (clamped to Min/MaxExposureSeconds right where it's loaded, two lines below the
+        /// brightness load in ConvergeOnTargetAsync), nothing was clamping brightness the same way. This
+        /// is the one place every commanded brightness now funnels through, whether it's a freshly loaded
+        /// starting value or one already inside TryEscalateBrightness's own configured-bound clamp: first
+        /// clamp to the configured [MinBrightness, MaxBrightness] (in case the stored/escalated value
+        /// predates or otherwise falls outside today's Options-page settings), then - best-effort - clamp
+        /// again to the flat panel's own reported [MinBrightness, MaxBrightness] (FlatDeviceInfo, see this
+        /// file's header comment) so a misconfigured Options-page range can never command the physical
+        /// device past what it actually supports. GetInfo() failing or reporting not-connected is not
+        /// fatal here - RunAsync's own pre-flight Connected check is what's supposed to catch that; this
+        /// falls back to the configured clamp alone rather than blocking a capture over it.
+        /// </summary>
+        private int ClampBrightnessToLimits(int brightness, string context) {
+            int configClamped = Math.Clamp(brightness, _settings.MinBrightness, _settings.MaxBrightness);
+            if (configClamped != brightness) {
+                string line = $"Smart Calibration Frames: {context} - requested brightness {brightness} is outside the configured [{_settings.MinBrightness}, {_settings.MaxBrightness}] range; clamped to {configClamped}.";
+                Logger.Warning(line);
+                WriteToLogFile(line);
+            }
+
+            int result = configClamped;
+            try {
+                var info = _flatDeviceMediator.GetInfo();
+                if (info != null && info.Connected) {
+                    int deviceClamped = Math.Clamp(result, info.MinBrightness, info.MaxBrightness);
+                    if (deviceClamped != result) {
+                        string line = $"Smart Calibration Frames: {context} - brightness {result} is outside the flat panel's own reported [{info.MinBrightness}, {info.MaxBrightness}] range; clamped to {deviceClamped}.";
+                        Logger.Warning(line);
+                        WriteToLogFile(line);
+                    }
+                    result = deviceClamped;
+                }
+            } catch (Exception ex) {
+                string line = $"Smart Calibration Frames: {context} - could not read the flat panel's own brightness limits: {ex.Message}. Using the configured [{_settings.MinBrightness}, {_settings.MaxBrightness}] range only.";
+                Logger.Warning(line);
+                WriteToLogFile(line);
+            }
+
+            return result;
+        }
+
         private static PlannedExposure FailedPlan(int brightness, double exposure, double achieved, int attempts, string reason) {
             return new PlannedExposure {
                 Brightness = brightness,
@@ -1336,6 +1398,12 @@ namespace SmartCalFrames.Equipment {
             // wrongly force an unnecessary bracket) - exactly the class of bug Round 32h-32t fought over,
             // just reintroduced from a different angle. Keeping this always in sync with the real last
             // command, from whichever call site made it, is the fix.
+            //
+            // Final clamp immediately before the real hardware command - see ClampBrightnessToLimits's
+            // own doc comment. This is the last opportunity to catch a stale/out-of-range remembered or
+            // escalated value before it actually reaches the panel, so it runs here regardless of which
+            // call site (search loop or production frame) supplied `brightness`.
+            brightness = ClampBrightnessToLimits(brightness, "panel command");
             await _flatDeviceMediator.SetBrightness(brightness, progress, token);
             s_lastCommandedBrightness = brightness;
             await Task.Delay(_settings.PanelSettleTimeMs, token);

@@ -116,6 +116,43 @@
          next to the one that's real. -->
     <util:InverseBooleanToVisibilityConverter x:Key="SmartCalInverseBoolToVis"/>
 
+    <!-- Plugin-owned icon: three stacked, OPAQUELY OCCLUDING frames (like a fanned stack of opaque
+         cards, each with a rectangular window cut out), standing in for the plugin's four calibration
+         frame types (flat / flat dark / bias / dark). Used in TWO places, both by this same resource key:
+           - [ExportMetadata("Icon", "SCFStackedFramesSVG")] on SmartCalSequenceItem (Advanced
+             Sequencer tree + Mini Sequencer widget).
+           - SmartCalFramesVM's constructor sets DockableVM.ImageGeometry from this same key (Imaging
+             tab's panel-toggle icon strip / the dockable panel's own tab icon).
+         Declared as a GeometryGroup (not a bare PathGeometry) because ImageGeometry's real type is
+         GeometryGroup (confirmed via IL dump, see SmartCalFramesVM.cs) - a PathGeometry alone fails
+         that "is GeometryGroup" check silently and leaves the dockable panel with no icon even though
+         the sequencer tree icon would still work fine. A GeometryGroup wrapping a single PathGeometry
+         satisfies both consumers from one definition. Declared here (not borrowed from a NINA built-in
+         *SVG key) so it can never silently break if NINA ever renames/removes its own internal
+         resource keys. 24x24 viewbox-equivalent, single color, fills via whatever Fill brush each
+         consumer's own template applies (NINA's own theme color, not something this plugin controls -
+         these tree/dock icon slots are a single-Fill Geometry, no independent stroke/second color).
+
+         EARLIER version of this shape (three hollow rings, simple boolean union) let a "behind" frame's
+         solid body show through a "front" frame's own hole - physically correct for a literal see-through
+         picture frame, but read as merged/see-through rather than three distinct opaque stacked frames.
+         Fixed by properly z-ordering the three frames front-to-back (frame 1 = front, frame 2 = middle,
+         frame 3 = back) and subtracting each frame's FULL outer footprint (not just its ring) from every
+         frame behind it, so a frame in front fully occludes whatever is behind it, including through its
+         own window. The resulting compound shape (4 closed loops - frame 1's full ring, plus the visible
+         remainder of frame 2 and of frame 3 after subtraction) was computed numerically (rasterized mask
+         + boolean occlusion + marching-squares contour extraction + Douglas-Peucker simplification, since
+         hand-deriving exact rounded-rect boolean subtraction isn't practical) rather than hand-authored,
+         which is why the corner coordinates below look like a dense polygon rather than clean arcs - at
+         this icon's rendered size (16-32px) the polygon corners are visually indistinguishable from the
+         true rounded corners they approximate. FillRule=Nonzero still set for consistency with the rest
+         of this plugin's icon resources, though the generated loops also render correctly under EvenOdd
+         (confirmed via side-by-side render) since marching-squares contours never self-intersect. -->
+    <GeometryGroup x:Key="SCFStackedFramesSVG" FillRule="Nonzero">
+        <PathGeometry FillRule="Nonzero" Figures="M1.60,0.50 L10.42,0.50 L10.94,0.71 L11.31,1.08 L11.48,1.47 L11.48,6.47 L16.32,6.49 L16.93,6.71 L17.30,7.07 L17.51,7.68 L17.53,12.52 L22.53,12.52 L22.92,12.69 L23.29,13.06 L23.50,13.58 L23.50,22.40 L23.20,23.05 L22.87,23.33 L22.40,23.50 L13.58,23.50 L13.06,23.29 L12.69,22.92 L12.52,22.53 L12.52,17.53 L7.68,17.51 L7.07,17.30 L6.71,16.93 L6.49,16.32 L6.47,11.48 L1.47,11.48 L1.08,11.31 L0.71,10.94 L0.50,10.42 L0.50,1.60 L0.80,0.95 L1.13,0.67 Z M1.60,1.06 L1.28,1.26 L1.06,1.60 L1.06,10.42 L1.15,10.59 L1.43,10.87 L1.69,10.96 L10.37,10.91 L10.63,10.83 L10.96,10.33 L10.96,1.69 L10.87,1.43 L10.42,1.06 Z M11.50,7.05 L11.48,10.50 L11.22,11.02 L10.76,11.39 L10.50,11.48 L7.05,11.50 L7.05,16.36 L7.16,16.60 L7.64,16.95 L12.50,16.95 L16.36,16.95 L16.58,16.86 L16.91,16.49 L16.95,7.64 L16.84,7.40 L16.36,7.05 Z M17.53,13.04 L17.51,16.32 L17.30,16.93 L16.93,17.30 L16.32,17.51 L13.04,17.53 L13.04,22.31 L13.13,22.57 L13.58,22.94 L18.45,22.94 L22.40,22.94 L22.66,22.81 L22.89,22.53 L22.94,13.58 L22.57,13.13 L22.31,13.04 Z" />
+    </GeometryGroup>
+
+
     <!-- ROUND 41f CORRECTION - these three are NOT plugin-local converters to declare/instantiate.
          Build broke with "The tag 'DefaultBinningModesConverter' does not exist in XML namespace
          '...NINA.Core.Utility;assembly=NINA.Core'" - turns out these follow the exact same pattern as
@@ -287,9 +324,8 @@
          (SmartCalFramesView.xaml) per explicit feedback after real testing - both are changed together
          so they can't drift apart. ROUND 71 - changed from the original lighter red (#FFEF9A9A) to a
          darker, fully saturated red (#FFFF0000) per a follow-up screenshot of the exact shade wanted.
-         Buttons have no local Style (same convention as the dockable panel's own Continue button - see
-         SmartCalRunPlanning §3.5-style note elsewhere in this project's KB), so they keep NINA's ambient
-         button chrome automatically. -->
+         Buttons have no local Style, so they keep NINA's ambient button chrome automatically.
+         Restored here after being lost from an earlier snapshot of this file. -->
     <DataTemplate DataType="{x:Type seq:CoverSwapDialogResult}">
         <Border Background="#FFFF0000" Padding="16" Width="440">
             <StackPanel>

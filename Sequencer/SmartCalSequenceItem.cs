@@ -44,7 +44,7 @@ namespace SmartCalFrames.Sequencer {
     /// </summary>
     [ExportMetadata("Name", "Smart Calibration Frames")]
     [ExportMetadata("Description", "Runs any combination of this plugin's four capture functions - Flat Frames, Flat Darks, Bias Frames, Dark Frames - each using that function's own tab settings from the dockable panel. Flat Frames self-corrects one remembered brightness/exposure per filter instead of trial-and-error; Dark Frames can optionally match each filter's exposure to the light frames already captured earlier in this same sequence run.")]
-    [ExportMetadata("Icon", "FlatWizardSVG")]
+    [ExportMetadata("Icon", "SCFStackedFramesSVG")]
     [ExportMetadata("Category", "Lbl_SequenceCategory_Camera")]
     [Export(typeof(NINA.Sequencer.SequenceItem.ISequenceItem))]
     [JsonObject(MemberSerialization.OptIn)]
@@ -259,9 +259,21 @@ namespace SmartCalFrames.Sequencer {
                 issues.Add("Camera is not connected.");
             }
 
-            var flatDeviceInfo = _flatDeviceMediator.GetInfo();
-            if (flatDeviceInfo == null || !flatDeviceInfo.Connected) {
-                issues.Add("Flat panel (Cover Calibrator) is not connected.");
+            // ROUND 76 FIX - reported (same bug as the dockable panel's own preflight checks): the flat
+            // panel connection was being required unconditionally, even for a sequence item configured to
+            // do Flat Darks/Bias/Dark Frames only (CaptureFlats unchecked). Only Flat Frames actually needs
+            // the panel connected - it has to turn the light on and command a brightness; the other three
+            // functions only ever call ToggleLight(false) as a best-effort precaution (already tolerant of
+            // a disconnected/absent panel - see SmartCalCaptureService's own try/catch around every
+            // ToggleLight(false) call) and a cover-close guard that already no-ops safely when no panel is
+            // present (SmartCalRunPlanning.EnsureFlatPanelCoverClosedAsync). So this validation issue now
+            // only fires when CaptureFlats is actually checked, matching the dockable panel's own
+            // Flats-only preflight check.
+            if (CaptureFlats) {
+                var flatDeviceInfo = _flatDeviceMediator.GetInfo();
+                if (flatDeviceInfo == null || !flatDeviceInfo.Connected) {
+                    issues.Add("Flat panel (Cover Calibrator) is not connected.");
+                }
             }
 
             if (CaptureFlats && !RunAllFilters) {
@@ -304,7 +316,13 @@ namespace SmartCalFrames.Sequencer {
             var settings = settingsProvider.Load();
             var service = new SmartCalCaptureService(
                 _cameraMediator, _filterWheelMediator, _flatDeviceMediator, _imagingMediator,
-                _imageSaveMediator, settingsProvider, settings);
+                _imageSaveMediator, settingsProvider, settings, _profileService,
+                // ROUND 69 - mirrors mirroredProgress just above: this runs on NINA's own sequencer
+                // thread, not the dockable panel's UI thread, so it goes through AppendExternalPreview
+                // (Dispatcher-wrapped) rather than setting LastCapturedImage directly. ROUND 73-78 briefly
+                // extended this to also carry a per-frame histogram; ROUND 93 removed that feature
+                // entirely, so this just forwards the bitmap again.
+                onFrameCaptured: bmp => SmartCalFramesVM.Instance?.AppendExternalPreview(bmp));
 
             // ROUND 17 - this sequencer instruction is a SEPARATE call path into
             // SmartCalCaptureService from the dockable panel's SmartCalFramesVM.RunAsync, and shares

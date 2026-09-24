@@ -10,6 +10,7 @@ using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Model;
 using NINA.Image.Interfaces;
+using NINA.Profile.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using SmartCalFrames.Model;
 using SmartCalFrames.Options;
@@ -154,6 +155,26 @@ namespace SmartCalFrames.Equipment {
         private readonly IImageSaveMediator _imageSaveMediator;
         private readonly SmartCalSettingsProvider _settingsProvider;
         private readonly SmartCalSettings _settings;
+        /// <summary>
+        /// ROUND 71 - needed so the image-preview callback (below) can stretch its frame the same way
+        /// NINA's own Options -> Imaging auto-stretch settings do (IProfile.ImageSettings.
+        /// AutoStretchFactor/BlackClipping/UnlinkedStretch, confirmed via dump_sig.py against the real
+        /// NINA.Profile.dll), matching what the Image tab / Smart Flat Wizard's separate preview window
+        /// show. Not used for anything else in this file - ADU statistics still come from
+        /// RawImageData.Statistics, unaffected by this.
+        /// </summary>
+        private readonly IProfileService _profileService;
+        /// <summary>
+        /// ROUND 69 - optional; null for any caller that doesn't care. Invoked from EmitPreviewAsync
+        /// (ROUND 72 - shared by all four real capture points in this file, not just Flats) after every
+        /// single capture - both search-phase attempts and production/keeper frames - with a stretched
+        /// (ROUND 71) rendering of that frame. ROUND 73-78 briefly extended this to also carry a per-frame
+        /// histogram (data points + bit depth); ROUND 93 removed the histogram feature entirely per
+        /// explicit request ("rip out all dead code" following "I don't think it's really that useful
+        /// anyway"), so this is back to carrying just the image. See SmartCalFramesVM.LastCapturedImage/
+        /// AppendExternalPreview for where this actually lands on screen.
+        /// </summary>
+        private readonly Action<System.Windows.Media.Imaging.BitmapSource> _onFrameCaptured;
 
         /// <summary>
         /// ROUND 42 - lets a user's DARK-type Image File Pattern override (Options -> Imaging -> Image
@@ -273,7 +294,9 @@ namespace SmartCalFrames.Equipment {
             IImagingMediator imagingMediator,
             IImageSaveMediator imageSaveMediator,
             SmartCalSettingsProvider settingsProvider,
-            SmartCalSettings settings) {
+            SmartCalSettings settings,
+            IProfileService profileService,
+            Action<System.Windows.Media.Imaging.BitmapSource> onFrameCaptured = null) {
             _cameraMediator = cameraMediator;
             _filterWheelMediator = filterWheelMediator;
             _flatDeviceMediator = flatDeviceMediator;
@@ -281,6 +304,8 @@ namespace SmartCalFrames.Equipment {
             _imageSaveMediator = imageSaveMediator;
             _settingsProvider = settingsProvider;
             _settings = settings;
+            _profileService = profileService;
+            _onFrameCaptured = onFrameCaptured;
 
             if (_settings.LogToFileEnabled) {
                 try {
@@ -625,6 +650,13 @@ namespace SmartCalFrames.Equipment {
                     throw new InvalidOperationException(onFailLine, onEx);
                 }
 
+                // ROUND 94 - code review found this loop had no per-group resilience, unlike
+                // RunDarkFramesAsync's structurally-identical loop below (which got its own try/catch back
+                // in Round 39 specifically so one bad group doesn't abort every remaining group). Wrapped
+                // to match: a real exception mid-group (camera fault, filter-wheel fault, etc.) now gets
+                // recorded as a FAILED summary line for that one exposure and the run moves on to the next
+                // exposure, instead of the whole method aborting. A Stop (OperationCanceledException) still
+                // aborts everything immediately, same as every other capture path in this file.
                 foreach (var exposure in uniqueExposures) {
                     token.ThrowIfCancellationRequested();
 
@@ -633,30 +665,50 @@ namespace SmartCalFrames.Equipment {
                     Logger.Info(startLine);
                     WriteToLogFile(startLine);
 
-                    for (int i = 1; i <= framesPerGroup; i++) {
-                        token.ThrowIfCancellationRequested();
+                    int captured = 0;
+                    try {
+                        for (int i = 1; i <= framesPerGroup; i++) {
+                            token.ThrowIfCancellationRequested();
 
-                        capture.ExposureTime = exposure;
-                        capture.ImageType = CaptureSequence.ImageTypes.DARK;
-                        capture.Binning = new BinningMode((short)binningX, (short)binningY);
-                        capture.Gain = gain;
-                        capture.Offset = offset;
-                        capture.ProgressExposureCount = frameCounter.Next++;
+                            capture.ExposureTime = exposure;
+                            capture.ImageType = CaptureSequence.ImageTypes.DARK;
+                            capture.Binning = new BinningMode((short)binningX, (short)binningY);
+                            capture.Gain = gain;
+                            capture.Offset = offset;
+                            capture.ProgressExposureCount = frameCounter.Next++;
 
-                        var prepareParams = new PrepareImageParameters(autoStretch: false, detectStars: false);
-                        var rendered = await _imagingMediator.CaptureAndPrepareImage(capture, prepareParams, token, progress);
-                        await _imageSaveMediator.Enqueue(rendered.RawImageData, Task.FromResult(rendered), progress, token);
+                            var prepareParams = new PrepareImageParameters(autoStretch: false, detectStars: false);
+                            var rendered = await _imagingMediator.CaptureAndPrepareImage(capture, prepareParams, token, progress);
+                            // ROUND 93 - the Round 88 "await Statistics.Task first" workaround was removed here.
+                            // It existed only to make the now-deleted per-frame histogram populate for Flat Darks;
+                            // with the histogram feature gone entirely, this capture type is back to Round 78's
+                            // original (faster) behavior of not waiting on full frame statistics it never needed.
+                            await EmitPreviewAsync(rendered, progress); // ROUND 72 - Flat Darks now shows in the preview too, see EmitPreviewAsync's doc comment; ROUND 89 - now also passes progress through for on-screen diagnostics
+                            await _imageSaveMediator.Enqueue(rendered.RawImageData, Task.FromResult(rendered), progress, token);
+                            captured++;
 
-                        string frameLine = $"Smart Calibration Frames: dark {i}/{framesPerGroup} at {exposure:F2}s saved.";
-                        progress.Report(new ApplicationStatus { Status = frameLine });
-                        WriteToLogFile(frameLine);
+                            string frameLine = $"Smart Calibration Frames: dark {i}/{framesPerGroup} at {exposure:F2}s saved.";
+                            progress.Report(new ApplicationStatus { Status = frameLine });
+                            WriteToLogFile(frameLine);
+                        }
+
+                        string doneLine = $"Smart Calibration Frames: finished {framesPerGroup} flat-dark frame(s) at {exposure:F2}s.";
+                        progress.Report(new ApplicationStatus { Status = doneLine });
+                        Logger.Info(doneLine);
+                        WriteToLogFile(doneLine);
+                        summaries.Add(doneLine);
+                    } catch (OperationCanceledException) {
+                        // A Stop is a deliberate user action, not this group's failure - let it abort the
+                        // whole run (caught by the outer try/finally below) rather than being recorded as
+                        // a per-group FAILED summary line.
+                        throw;
+                    } catch (Exception ex) {
+                        string failLine = $"{exposure:F2}s: FAILED after {captured}/{framesPerGroup} flat-dark frame(s) - {ex.Message}";
+                        Logger.Error($"Smart Calibration Frames: {failLine}");
+                        WriteToLogFile($"Smart Calibration Frames: {failLine}");
+                        progress.Report(new ApplicationStatus { Status = $"Smart Calibration Frames: {failLine}" });
+                        summaries.Add(failLine);
                     }
-
-                    string doneLine = $"Smart Calibration Frames: finished {framesPerGroup} flat-dark frame(s) at {exposure:F2}s.";
-                    progress.Report(new ApplicationStatus { Status = doneLine });
-                    Logger.Info(doneLine);
-                    WriteToLogFile(doneLine);
-                    summaries.Add(doneLine);
                 }
             } finally {
                 _imageSaveMediator.BeforeFinalizeImageSaved -= frameKindHandler;
@@ -761,6 +813,9 @@ namespace SmartCalFrames.Equipment {
 
                             var prepareParams = new PrepareImageParameters(autoStretch: false, detectStars: false);
                             var rendered = await _imagingMediator.CaptureAndPrepareImage(capture, prepareParams, token, progress);
+                            // ROUND 93 - see the identical removal in RunFlatDarksAsync above: the Round 88
+                            // Statistics.Task await existed only to serve the now-deleted histogram feature.
+                            await EmitPreviewAsync(rendered, progress); // ROUND 72 - Dark Frames now shows in the preview too, see EmitPreviewAsync's doc comment; ROUND 89 - now also passes progress through for on-screen diagnostics
                             await _imageSaveMediator.Enqueue(rendered.RawImageData, Task.FromResult(rendered), progress, token);
                             captured++;
 
@@ -862,6 +917,9 @@ namespace SmartCalFrames.Equipment {
 
                     var prepareParams = new PrepareImageParameters(autoStretch: false, detectStars: false);
                     var rendered = await _imagingMediator.CaptureAndPrepareImage(capture, prepareParams, token, progress);
+                    // ROUND 93 - see the identical removal in RunFlatDarksAsync above: the Round 88
+                    // Statistics.Task await existed only to serve the now-deleted histogram feature.
+                    await EmitPreviewAsync(rendered, progress); // ROUND 72 - Bias Frames now shows in the preview too, see EmitPreviewAsync's doc comment; ROUND 89 - now also passes progress through for on-screen diagnostics
                     await _imageSaveMediator.Enqueue(rendered.RawImageData, Task.FromResult(rendered), progress, token);
                     saved++;
 
@@ -947,9 +1005,38 @@ namespace SmartCalFrames.Equipment {
             // meaningful step room to work. In practice this only matters for a filter whose stored
             // default is far off - the common "off by a little" case this round was built for converges
             // in 1-2 escalations.
-            const int primaryBrightnessStep = 10;
+            //
+            // ROUND 67 - real narrowband use pointed out the fixed 10-unit primary step didn't actually
+            // deliver on the above: reaching a stored-default-to-real-value gap of 150 (a perfectly
+            // normal brightness for 3nm Ha/SII/OIII, per user field experience - NOT an edge case) needs
+            // 150/10 = 15 escalations, which blows past maxBrightnessEscalations (10) before ever getting
+            // there - the search gives up at brightness 100, having never actually tried the value the
+            // filter needed. Raised the primary step to 20 units/escalation: 150/20 = 8 escalations,
+            // comfortably inside the existing cap of 10, and the cap's max reach grows from 10*10=100 to
+            // 10*20=200 units of movement from the starting point - covers the realistic operating range
+            // (up to ~150) with real margin, without needing to chase the full 0-255 span the hardware
+            // allows but narrowband filters don't actually need (per explicit user direction: normal
+            // values top out around 150, 255 should not be a routine target). Worst-case FRAME count is
+            // UNCHANGED at 88 (that's driven by maxAttempts/maxBrightnessEscalations, not step size) -
+            // this change only widens how much real brightness range that same 88-frame budget can cover.
+            // correctionBrightnessStep (fine correction after an overshoot) deliberately left at 5 - that
+            // number came from explicit Round 33b user direction and this round didn't touch it.
+            //
+            // ROUND 68 - maxBrightnessEscalations raised from 10 to 12, per explicit user direction and
+            // math: with primaryBrightnessStep now 20 (Round 67), the theoretical worst case - starting
+            // at brightness 0 and needing to reach the far end of the panel's real 0-255 range in one
+            // direction - is 255/20 = 12.75 escalations. Floored to 12 (12*20 = 240): comfortably covers
+            // that worst case with only a small, deliberate margin left un-covered right at the extreme
+            // 255 end - consistent with the user's own stated position that a normal run should never
+            // actually need to reach 255 (real narrowband values top out around 150, itself already
+            // covered at the old cap of 10). maxAttempts (8, the exposure-search try limit AT one
+            // brightness level - a different question from how many times brightness itself escalates)
+            // was explicitly reviewed and left unchanged this round - user confirmed 8 is fine there.
+            // New worst-case total search frames before giving up on a filter: (12 + 1) * 8 = 104, up
+            // from 88.
+            const int primaryBrightnessStep = 20;
             const int correctionBrightnessStep = 5;
-            const int maxBrightnessEscalations = 10;
+            const int maxBrightnessEscalations = 12;
             const double saturationFraction = 0.98; // >=98% of full well treated as clipped/unreliable
 
             // ROUND 35 - real field log (Blue filter, brightness fixed at 35, never saturated, never hit
@@ -1316,6 +1403,39 @@ namespace SmartCalFrames.Equipment {
         }
 
         /// <summary>
+        /// ROUND 72 - factored out of CaptureOneAsync (where the Round 69/71 image-preview logic
+        /// originally lived, inline) so it can be shared by every real capture path in this file, not just
+        /// the Flats search/production loop. Real user report: "only flat frames are being displayed - all
+        /// frames... should be displayed on download including flat darks, bias and dark frames." Round
+        /// 69's own header comment claimed CaptureOneAsync was "the single low-level capture method shared
+        /// by all four capture functions" - that claim was never actually verified and was wrong:
+        /// RunFlatDarksAsync/RunDarkFramesAsync/RunBiasFramesAsync each call
+        /// _imagingMediator.CaptureAndPrepareImage directly and never went through CaptureOneAsync at all,
+        /// so they never fired the preview callback. Fixed by calling this same helper from all four real
+        /// capture points instead of just one.
+        ///
+        /// ROUND 93 - the per-frame histogram this method used to also build (Rounds 73-92's full saga is
+        /// in kb.txt) was removed entirely per explicit request ("rip out all dead code" following "I
+        /// don't think it's really that useful anyway"). This method now does exactly one thing: stretch
+        /// the frame and hand it to the image-preview callback. No-op entirely if no onFrameCaptured
+        /// callback was wired for this run.
+        /// </summary>
+        private async Task EmitPreviewAsync(IRenderedImage rendered, IProgress<ApplicationStatus> progress = null) {
+            if (_onFrameCaptured == null) return;
+
+            try {
+                var imgSettings = _profileService.ActiveProfile.ImageSettings;
+                var stretchedRendered = await rendered.Stretch(imgSettings.AutoStretchFactor, imgSettings.BlackClipping, imgSettings.UnlinkedStretch);
+                _onFrameCaptured.Invoke(stretchedRendered.Image);
+            } catch (Exception ex) {
+                string stretchExLine = $"Smart Calibration Frames: image-preview stretch failed ({ex.Message}) - showing the unstretched frame instead.";
+                Logger.Warning(stretchExLine);
+                progress?.Report(new ApplicationStatus { Status = stretchExLine });
+                _onFrameCaptured.Invoke(rendered.Image);
+            }
+        }
+
+        /// <summary>
         /// ROUND 15 - reported: saved flats collided on the same filename ("1_0.10s_0000(1).fits") because
         /// $$FRAMENR$$ in NINA's file pattern always evaluated to the same value. Fix: the caller creates
         /// ONE CaptureSequence for the whole run (search phase AND production frames) and passes it in
@@ -1420,11 +1540,17 @@ namespace SmartCalFrames.Equipment {
             var rendered = await _imagingMediator.CaptureAndPrepareImage(capture, prepareParams, token, progress);
             var stats = await rendered.RawImageData.Statistics.Task;
 
+            // ROUND 69 image-preview callback, ROUND 71 stretch fix, ROUND 72 factored out into
+            // EmitPreviewAsync (see that method's doc comment) so Flat Darks/Dark Frames/Bias Frames get
+            // the exact same preview behavior instead of only Flats. ROUND 89 - now also passes progress
+            // through so a preview-stretch failure (if this Flats path ever hits one too) is just as
+            // diagnosable.
+            await EmitPreviewAsync(rendered, progress);
+
             return new CapturedFlatFrame {
                 Rendered = rendered,
                 Stats = new ImageStatistics {
                     Mean = stats.Mean,
-                    StdDev = stats.StDev,
                     FullWellADU = Math.Pow(2, stats.BitDepth) - 1
                 }
             };

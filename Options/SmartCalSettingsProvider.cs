@@ -51,6 +51,7 @@ namespace SmartCalFrames.Options {
                 StackStabilityThreshold = a.GetValueDouble(nameof(SmartCalSettings.StackStabilityThreshold), d.StackStabilityThreshold),
                 FrameOutlierTolerancePercent = a.GetValueDouble(nameof(SmartCalSettings.FrameOutlierTolerancePercent), d.FrameOutlierTolerancePercent),
                 LogToFileEnabled = a.GetValueBoolean(nameof(SmartCalSettings.LogToFileEnabled), d.LogToFileEnabled),
+                ShowCapturedImagePreview = a.GetValueBoolean(nameof(SmartCalSettings.ShowCapturedImagePreview), d.ShowCapturedImagePreview),
                 DarkFramesPerGroup = a.GetValueInt32(nameof(SmartCalSettings.DarkFramesPerGroup), d.DarkFramesPerGroup),
                 BiasFrameCount = a.GetValueInt32(nameof(SmartCalSettings.BiasFrameCount), d.BiasFrameCount),
                 PauseForCoverSwap = a.GetValueBoolean(nameof(SmartCalSettings.PauseForCoverSwap), d.PauseForCoverSwap),
@@ -73,6 +74,7 @@ namespace SmartCalFrames.Options {
             a.SetValueDouble(nameof(SmartCalSettings.StackStabilityThreshold), settings.StackStabilityThreshold);
             a.SetValueDouble(nameof(SmartCalSettings.FrameOutlierTolerancePercent), settings.FrameOutlierTolerancePercent);
             a.SetValueBoolean(nameof(SmartCalSettings.LogToFileEnabled), settings.LogToFileEnabled);
+            a.SetValueBoolean(nameof(SmartCalSettings.ShowCapturedImagePreview), settings.ShowCapturedImagePreview);
             a.SetValueInt32(nameof(SmartCalSettings.DarkFramesPerGroup), settings.DarkFramesPerGroup);
             a.SetValueInt32(nameof(SmartCalSettings.BiasFrameCount), settings.BiasFrameCount);
             a.SetValueBoolean(nameof(SmartCalSettings.PauseForCoverSwap), settings.PauseForCoverSwap);

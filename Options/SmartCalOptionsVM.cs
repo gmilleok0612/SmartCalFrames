@@ -73,14 +73,31 @@ namespace SmartCalFrames.Options {
             }
         }
 
+        /// <summary>
+        /// ROUND 94 - code review found this pair had no cross-validation at all, unlike MinBrightness/
+        /// MaxBrightness below (which explicitly clamp against each other). SmartCalCaptureService's
+        /// ConvergeOnTargetAsync calls Math.Clamp(value, MinExposureSeconds, MaxExposureSeconds) in two
+        /// places - .NET's Math.Clamp throws ArgumentException whenever min > max, so a user setting Min
+        /// above Max (e.g. transposing the two boxes) made every capture of every function throw
+        /// immediately instead of failing with a normal validation message. Fixed the same way
+        /// MinBrightness/MaxBrightness already protect themselves - each setter clamps against the other's
+        /// current value, so [Min, Max] is always well-formed regardless of which box is edited first.
+        /// </summary>
         public double MinExposureSeconds {
             get => _settings.MinExposureSeconds;
-            set { _settings.MinExposureSeconds = value; Persist(); }
+            set {
+                _settings.MinExposureSeconds = value > _settings.MaxExposureSeconds ? _settings.MaxExposureSeconds : value;
+                Persist();
+            }
         }
 
+        /// <summary>ROUND 94 - see MinExposureSeconds above for the full reasoning.</summary>
         public double MaxExposureSeconds {
             get => _settings.MaxExposureSeconds;
-            set { _settings.MaxExposureSeconds = value; Persist(); }
+            set {
+                _settings.MaxExposureSeconds = value < _settings.MinExposureSeconds ? _settings.MinExposureSeconds : value;
+                Persist();
+            }
         }
 
         public double PreferredExposureSeconds {
@@ -120,9 +137,18 @@ namespace SmartCalFrames.Options {
             }
         }
 
+        /// <summary>
+        /// ROUND 94 - code review found this fed directly into Task.Delay(_settings.PanelSettleTimeMs,
+        /// token) in SmartCalCaptureService, which throws ArgumentOutOfRangeException for any negative
+        /// value other than exactly -1. Clamped to a minimum of 0 (an instant, no-delay settle) so a stray
+        /// negative value typed here can't take down every capture.
+        /// </summary>
         public int PanelSettleTimeMs {
             get => _settings.PanelSettleTimeMs;
-            set { _settings.PanelSettleTimeMs = value; Persist(); }
+            set {
+                _settings.PanelSettleTimeMs = Math.Max(0, value);
+                Persist();
+            }
         }
 
         public int MinFlatsPerFilter {
@@ -179,6 +205,25 @@ namespace SmartCalFrames.Options {
         public bool OpenCoverAfterRun {
             get => _settings.OpenCoverAfterRun;
             set { _settings.OpenCoverAfterRun = value; Persist(); }
+        }
+
+        /// <summary>
+        /// ROUND 69 - the dockable panel's SmartCalFramesVM is a separate, long-lived object
+        /// (SmartCalFramesVM.Instance - the same static-singleton pattern SmartCalSequenceItem already
+        /// uses to reach it from a different file). Without the explicit refresh call below, toggling
+        /// this checkbox wouldn't be reflected on that panel's log/image split until NINA restarted or
+        /// the panel was torn down and recreated - the panel reads this setting fresh each time, but
+        /// nothing tells its already-bound View to re-query it otherwise. Mirrors the existing Round 34
+        /// cross-VM refresh pattern (RefreshFilterDefault) for the same class of problem in the other
+        /// direction.
+        /// </summary>
+        public bool ShowCapturedImagePreview {
+            get => _settings.ShowCapturedImagePreview;
+            set {
+                _settings.ShowCapturedImagePreview = value;
+                Persist();
+                SmartCalFrames.Dockable.SmartCalFramesVM.Instance?.RefreshImagePreviewVisibility();
+            }
         }
 
         /// <summary>

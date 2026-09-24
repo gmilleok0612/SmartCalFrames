@@ -18,6 +18,11 @@
         <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
         <util:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
 
+        <!-- ROUND 69 - image-preview column (Options page "Show captured image" toggle). See
+             Utility/BoolToGridLengthConverter.cs for why a plain Visibility binding on the column's
+             CONTENT isn't enough to actually give the log its full width back when this is off. -->
+        <util:BoolToGridLengthConverter x:Key="BoolToGridLengthConverter"/>
+
         <!-- ROUND 39 - Dark Frames tab's per-row Binning dropdown (tab renamed same session from "Light
              Darks" per explicit user feedback). A plain 1x-5x list ("no reason to go farther than that"
              per explicit direction) - a static x:Array is simplest here since every row's ComboBox needs
@@ -136,10 +141,11 @@
              (Capture flat darks, Preview groups, etc.), all of which were always left at NINA's default
              and never reported as wrong. -->
     </UserControl.Resources>
-    <!-- ROUND 65 - the shared StatusText/RunLog area below the TabControl (Grid.Row="4" as of Round 67's
-         inserted pause-banner row; "3" at the time this was written) is a "*" row,
-         so it only ever gets whatever height is left over after the "Auto" rows above it (checkbox strip,
-         TabControl, separator) take what THEY need. Reported: the log appeared not to display at all
+    <!-- ROUND 65 - the shared RunLog area below the TabControl (Grid.Row="4" as of Round 84 - was "3"
+         before that round added the StatusText+histogram row above the Separator) is a "*" row, so it only
+         ever gets whatever height is left over after the "Auto" rows above it (checkbox strip, TabControl,
+         StatusText+histogram row, separator) take what THEY need. Reported: the log appeared not to display
+         at all
          with the Dark Frames tab selected - that tab is the only one of the four with both the longest
          description text AND a per-filter Binning/Frames/Exposure table (up to 220px tall, see the
          ScrollViewer below), so on a docked panel that isn't very tall, its Auto-sized content could
@@ -150,10 +156,22 @@
          log area can never be squeezed to nothing, and by shrinking the Dark Frames per-filter table's
          own MaxHeight (220 -> 140) so it demands less room to begin with. -->
     <Grid Margin="8">
+        <!-- ROUND 84 - added a fifth row (was four: strip/TabControl/Separator/log-image). The shared
+             StatusText+histogram row now lives at Grid.Row="2", ABOVE the Separator - "I wanted the
+             histograms to go above the horizontal line above the log, as was in the previous dark frame
+             window" - matching how Round 80's Dark Frames tab had its own histogram above the separator,
+             next to its table, while only the log/image sat below it. Separator moves down to Grid.Row="3"
+             and the log/image Grid moves down to Grid.Row="4". See the Round 84 comment on the new row
+             itself, further down, for the rest of this change. -->
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <!-- ROUND 67 - "Pause for cover swap" banner (Grid.Row="1"), collapsed to zero height via
-                 its own Visibility binding whenever no pause is in progress - see that Border below. -->
+                 its own Visibility binding whenever no pause is in progress - see that Border below.
+                 Restored here alongside the Round 73+ StatusText/histogram/image-preview rows after
+                 this row was lost from an earlier snapshot of this file (all rows below it shift down
+                 by one accordingly: StatusText/histogram Grid.Row="1"->"2", TabControl "2"->"3",
+                 Separator "3"->"4", log/image Grid "4"->"5"). -->
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -240,10 +258,9 @@
 
                 <!-- ROUND 72 - "Open cover after run complete": for a MOTORIZED flat-panel cover only (see
                      SmartCalSettings.OpenCoverAfterRun for the full explanation). Off by default - the
-                     cover stays closed once a run ends, same as Round 69 - so this is purely opt-in: check
-                     it if you want the cover to reopen automatically instead. Unrelated to "Pause for
-                     cover swap" to its left, which is about a manual panel/cap swap, not a motorized
-                     cover. -->
+                     cover stays closed once a run ends - so this is purely opt-in: check it if you want
+                     the cover to reopen automatically instead. Unrelated to "Pause for cover swap" to its
+                     left, which is about a manual panel/cap swap, not a motorized cover. -->
                 <CheckBox Content="Open cover after run complete" IsChecked="{Binding OpenCoverAfterRun}"
                           Style="{StaticResource SmartCalCheckBoxStyle}"
                           IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
@@ -253,19 +270,14 @@
 
         <!-- ROUND 67 - shown only while a PauseForCoverSwapAsync call is waiting for Continue (see
              SmartCalFramesVM.IsAwaitingCoverSwap). Its own Auto row (Grid.Row="1") right below the Run
-             All strip, ahead of the TabControl - a real grid row rather than overlaying the strip above,
-             so it can never visually collide with it. Collapsed (zero height) whenever no pause is in
-             progress, so it costs no space the rest of the time. Deliberately loud (bright background,
-             bold black text) since this is the one moment the run is silently doing nothing until a
-             human acts - unlike the rest of this panel's status text, which is easy to skim past mid-run.
-             ROUND 70 - background changed from the original amber (#FFB58900) to a lighter red
-             (#FFEF9A9A) per explicit feedback after real testing ("use a lighter red background rather
-             than yellow"). ROUND 71 - that lighter red was itself replaced with a darker, fully
-             saturated red (#FFFF0000) per a follow-up screenshot of the exact shade wanted ("can you
-             make it a darker red this shade"). This exact color is also used by the sequencer's own
-             pause dialog (see Templates/SmartCalDataTemplates.xaml's CoverSwapDialogResult template) so
-             both surfaces match, per the original Round 70 feedback ("same color red as the main
-             panel") - kept in sync again for this round's change. -->
+             All strip, ahead of everything else - a real grid row rather than overlaying the strip
+             above, so it can never visually collide with it. Collapsed (zero height) whenever no pause
+             is in progress, so it costs no space the rest of the time. Deliberately loud (bright
+             background, bold black text) since this is the one moment the run is silently doing nothing
+             until a human acts. Background #FFFF0000 (Round 71's final saturated red, after Round 70's
+             lighter #FFEF9A9A and the original amber #FFB58900) - this exact color is also used by the
+             sequencer's own pause dialog (Templates/SmartCalDataTemplates.xaml's CoverSwapDialogResult
+             template) so both surfaces match. -->
         <Border Grid.Row="1" Margin="0,0,0,8" Padding="6,4" Background="#FFFF0000"
                 Visibility="{Binding IsAwaitingCoverSwap, Converter={StaticResource BooleanToVisibilityConverter}}">
             <DockPanel LastChildFill="True">
@@ -278,11 +290,42 @@
 
         <!-- ROUND 36 - "Run" (flats) and "Flat Darks" now live as two tabs in the same panel, per
              explicit direction, instead of a second dockable panel or a sequencer-only feature. Both
-             tabs share the StatusText/RunLog area below the TabControl - one running log regardless of
-             which tab started it, same as a manually-started flats run and a sequencer-driven one
-             already share this panel's log (see SmartCalFramesVM.ClearForExternalRun/AppendExternalStatus). -->
-        <TabControl Grid.Row="2" Margin="0,0,0,8" Background="Transparent" BorderThickness="0">
+             tabs share the StatusText/RunLog area - one running log regardless of which tab started it,
+             same as a manually-started flats run and a sequencer-driven one already share this panel's
+             log (see SmartCalFramesVM.ClearForExternalRun/AppendExternalStatus). -->
+        <!-- ROUND 80 added a SelectedIndex TwoWay binding here so the shared histogram could be hidden
+             specifically on the Dark Frames tab (which had its own embedded copy at the time). ROUND 83
+             removed that whole per-tab-histogram design (see the Round 83 note on the shared histogram
+             Border further down) - there is now exactly ONE histogram, shared and identically placed
+             across all four tabs, so nothing needs to know which tab is selected any more. Plain
+             TabControl, no SelectedIndex binding.
+
+             ROUND 91 - moved to Grid.Row="2" (was "1"). See the Round 91 note on the StatusText+histogram
+             Grid, now above this at Grid.Row="1", for why: after three straight rounds of
+             VerticalAlignment="Top" fixes to that row's own INTERNAL alignment failed to resolve "still
+             not at the top of the frame," this round questions a different assumption instead - that
+             row's position in the OUTER row order, not its internal alignment. It used to sit at
+             Grid.Row="2", entirely BELOW this whole TabControl (i.e. below every tab's own content,
+             however tall that happens to be) - never actually "high" in any tab's visible area no matter
+             how it was internally aligned. Swapping the two rows puts the histogram immediately below the
+             Run All strip, at the actual top of the panel, before any tab content at all. -->
+        <TabControl Grid.Row="3" Margin="0,0,0,8" Background="Transparent" BorderThickness="0">
             <TabItem Header="Run Flats" Style="{StaticResource SmartCalTabItemStyle}">
+                <!-- ROUND 86 - hover tooltip added, per explicit request: "why not use text that pops up
+                     when you hover over the tabs for run flats, flat darks, etc., rather than fixed text
+                     that always appears. The user need not read it every time and that will save a lot of
+                     vertical space." This tab never had a static description TextBlock the way the other
+                     three did (its Grid.Row="1" FilterDefaultsSummary below is live per-filter DATA, not
+                     help text, so it stays visible rather than moving into a tooltip) - this ToolTip is new
+                     content, written to match the other three tabs' tooltips for a consistent hover-help
+                     experience across all four. See the Flat Darks/Bias Frames/Dark Frames TabItems below
+                     for the matching change on tabs that DID have a static description. -->
+                <TabItem.ToolTip>
+                    <ToolTip>
+                        <TextBlock MaxWidth="380" TextWrapping="Wrap"
+                                   Text="Self-correcting flat capture: for each filter, searches exposure (and, if needed, brightness) live until the target ADU is reached, then keeps capturing frames until enough have converged within the stability threshold set on the Options page. Use the &quot;Filter:&quot; dropdown and Adaptive/Min/Max controls above to configure per-filter frame counts; use &quot;Capture flats&quot; below to run just the selected filter, or the Run All strip above to run every filter in the wheel."/>
+                    </ToolTip>
+                </TabItem.ToolTip>
                 <!-- ROUND 47 - per explicit user direction: "Frames per filter" + "Adaptive (advanced)"
                      moved up to the Run All strip above (Grid.Row="0" of the outer Grid) - the row that
                      used to hold them here is gone. Filter dropdown, the filter-defaults summary text, and
@@ -397,18 +440,28 @@
             </TabItem>
 
             <TabItem Header="Flat Darks" Style="{StaticResource SmartCalTabItemStyle}">
+                <!-- ROUND 86 - moved from an always-visible TextBlock (was Grid.Row="0" below) into a
+                     hover tooltip on the tab header itself, per explicit request: "why not use text that
+                     pops up when you hover over the tabs for run flats, flat darks, etc., rather than fixed
+                     text that always appears. The user need not read it every time and that will save a lot
+                     of vertical space." Content is unchanged from the old TextBlock's Text, word for word -
+                     only where it lives changed. Removing that row also meant renumbering every remaining
+                     Grid.Row below (was 1/2/3, now 0/1/2) and dropping the Grid's now-unneeded 4th
+                     RowDefinition. -->
+                <TabItem.ToolTip>
+                    <ToolTip>
+                        <TextBlock MaxWidth="380" TextWrapping="Wrap"
+                                   Text="Captures dark frames matched to each filter's stored flat exposure - one dark group per unique exposure, so filters sharing an exposure share one group. Uses the current camera gain/offset and bin1x1, same as flats. The flat panel's light is turned off before capturing; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected)."/>
+                    </ToolTip>
+                </TabItem.ToolTip>
                 <Grid Margin="0,8,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.8"
-                               Text="Captures dark frames matched to each filter's stored flat exposure - one dark group per unique exposure, so filters sharing an exposure share one group. Uses the current camera gain/offset and bin1x1, same as flats. The flat panel's light is turned off before capturing; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected)."/>
-
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Darks per group:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBox Width="50" Text="{Binding DarkFramesPerGroup}"
                                   IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"/>
@@ -440,11 +493,11 @@
                         </Button>
                     </StackPanel>
 
-                    <TextBlock Grid.Row="2" Text="{Binding DarkGroupsPreview}" TextWrapping="Wrap"
+                    <TextBlock Grid.Row="1" Text="{Binding DarkGroupsPreview}" TextWrapping="Wrap"
                                FontFamily="Consolas" FontSize="11" Margin="0,0,0,8"
                                Visibility="{Binding DarkGroupsPreviewVisible, Converter={StaticResource BooleanToVisibilityConverter}}"/>
 
-                    <StackPanel Grid.Row="3" Orientation="Horizontal">
+                    <StackPanel Grid.Row="2" Orientation="Horizontal">
                         <Button Content="Capture flat darks" Command="{Binding RunFlatDarksCommand}"
                                 IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
                                 Margin="0,0,6,0" Padding="8,3"/>
@@ -455,23 +508,29 @@
             </TabItem>
 
             <TabItem Header="Bias Frames" Style="{StaticResource SmartCalTabItemStyle}">
+                <!-- ROUND 86 - moved from an always-visible TextBlock into a hover tooltip, same change and
+                     same rationale as the Flat Darks tab above (see its comment). Content unchanged from
+                     the old TextBlock's Text; remaining Grid.Row values renumbered 1/2 -> 0/1 and the 3rd
+                     (now-unneeded) RowDefinition dropped. -->
+                <TabItem.ToolTip>
+                    <ToolTip>
+                        <TextBlock MaxWidth="380" TextWrapping="Wrap"
+                                   Text="Captures a fixed count of bias frames - current camera gain/offset, bin1x1, no filter wheel move. Exposure is not user-set: it's read from the connected camera's own reported minimum exposure at capture time (falls back to the Min Exposure setting from Run Flats only if the camera doesn't report one). The flat panel's light is turned off before capturing, same as Flat Darks; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected)."/>
+                    </ToolTip>
+                </TabItem.ToolTip>
                 <Grid Margin="0,8,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.8"
-                               Text="Captures a fixed count of bias frames - current camera gain/offset, bin1x1, no filter wheel move. Exposure is not user-set: it's read from the connected camera's own reported minimum exposure at capture time (falls back to the Min Exposure setting from Run Flats only if the camera doesn't report one). The flat panel's light is turned off before capturing, same as Flat Darks; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected)."/>
-
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,8">
+                    <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
                         <TextBlock Text="Frame count:" VerticalAlignment="Center" Margin="0,0,6,0"/>
                         <TextBox Width="50" Text="{Binding BiasFrameCount}"
                                   IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"/>
                     </StackPanel>
 
-                    <StackPanel Grid.Row="2" Orientation="Horizontal">
+                    <StackPanel Grid.Row="1" Orientation="Horizontal">
                         <Button Content="Capture bias frames" Command="{Binding RunBiasFramesCommand}"
                                 IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
                                 Margin="0,0,6,0" Padding="8,3"/>
@@ -482,51 +541,94 @@
             </TabItem>
 
             <TabItem Header="Dark Frames" Style="{StaticResource SmartCalTabItemStyle}">
+                <!-- ROUND 86 - moved from an always-visible TextBlock into a hover tooltip, same change and
+                     same rationale as the Flat Darks/Bias Frames tabs above (see either's comment). Content
+                     unchanged from the old TextBlock's Text; remaining Grid.Row values renumbered 1/2 -> 0/1
+                     and the 3rd (now-unneeded) RowDefinition dropped. -->
+                <TabItem.ToolTip>
+                    <ToolTip>
+                        <TextBlock MaxWidth="380" TextWrapping="Wrap"
+                                   Text="Captures dark frames matched to each filter's own light-frame settings (not the stored flat exposure, unlike Flat Darks). Set Binning/Frames/Exposure per filter below - a filter left at 0 frames is skipped; exposure must be at least 0.1s once you set a frame count above 0. Filters that agree on both exposure and binning share one capture pass, using the larger requested frame count. Uses the current camera gain/offset, no filter wheel move. The flat panel's light is turned off before capturing; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected). A summary of what was actually captured per group appears at the top once the run finishes, so a failed group is easy to spot."/>
+                    </ToolTip>
+                </TabItem.ToolTip>
                 <Grid Margin="0,8,0,0">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" TextWrapping="Wrap" Margin="0,0,0,8" Opacity="0.8"
-                               Text="Captures dark frames matched to each filter's own light-frame settings (not the stored flat exposure, unlike Flat Darks). Set Binning/Frames/Exposure per filter below - a filter left at 0 frames is skipped; exposure must be at least 0.1s once you set a frame count above 0. Filters that agree on both exposure and binning share one capture pass, using the larger requested frame count. Uses the current camera gain/offset, no filter wheel move. The flat panel's light is turned off before capturing; if your panel has a motorized cover it's closed automatically first and reopened once the run finishes (panels without a motorized cover are unaffected). A summary of what was actually captured per group appears at the top once the run finishes, so a failed group is easy to spot."/>
+                    <!-- ROUND 80 rebuilt this per-filter table as a column-aligned Grid with ONE header
+                         row (Filter/Bin/Frames/Exp(s)) instead of the old StackPanel-per-row approach that
+                         re-typed "Bin:"/"Frames:"/"Exposure (s):" as a label on EVERY row - that repetition
+                         was most of what made each row wide.
 
-                    <!-- ROUND 65 - MaxHeight reduced from 220 to 140: this per-filter table (unique to this
-                         tab - Flat Darks/Bias Frames have no equivalent) was, combined with this tab's own
-                         long description above, tall enough to starve the shared RunLog area below the
-                         TabControl of any visible height on a shorter docked panel. See the MinHeight note
-                         on this panel's outer Grid.Row="4" (Round 67 inserted a pause-banner row ahead
-                         of it, shifting it from "3") for the other half of that fix. -->
-                    <ScrollViewer Grid.Row="1" MaxHeight="140" VerticalScrollBarVisibility="Auto" Margin="0,0,0,8">
-                        <ItemsControl ItemsSource="{Binding DarkFrameRows}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
-                                        <TextBlock Text="{Binding FilterName}" Width="80" VerticalAlignment="Center" FontWeight="SemiBold"/>
-                                        <TextBlock Text="Bin:" VerticalAlignment="Center" Margin="6,0,4,0"/>
-                                        <ComboBox Width="55" ItemsSource="{StaticResource BinningOptions}"
-                                                  SelectedItem="{Binding BinningFactor}"
-                                                  IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate>
-                                                    <TextBlock Text="{Binding StringFormat={}{0}x}"/>
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                        <TextBlock Text="Frames:" VerticalAlignment="Center" Margin="10,0,4,0"/>
-                                        <TextBox Width="45" Text="{Binding FrameCount, UpdateSourceTrigger=PropertyChanged}"
-                                                  IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}"/>
-                                        <TextBlock Text="Exposure (s):" VerticalAlignment="Center" Margin="10,0,4,0"/>
-                                        <TextBox Width="65" Text="{Binding ExposureSeconds, StringFormat=F1, UpdateSourceTrigger=PropertyChanged}"
-                                                  IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}"/>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                         ROUND 80 also embedded a second histogram directly beside this table, in the width
+                         the header-row rework freed up - REMOVED in ROUND 83. Per explicit request, the
+                         histogram is now ONE shared element, identically placed and sized on all four tabs
+                         (see the shared area below the TabControl, further down this file).
 
-                    <StackPanel Grid.Row="2" Orientation="Horizontal">
+                         ROUND 85 REPLACES Round 80's one-filter-per-row table entirely, per explicit
+                         report: "on dark frames, you have one filter per row. Instead, you could put four
+                         on one row and three on another (with room for one more) thus bringing the entire
+                         display below up-and enlarging the log/image frames." One filter per row meant N
+                         filters cost N rows of vertical height, most of it wasted - the table only ever
+                         used a narrow slice of this tab's real available width (see the screenshot: the
+                         table sat at the left edge with a large empty gap to its right). Since the
+                         TabControl's content height is Auto-sized and the log/image row below is the only
+                         "*" row in the whole panel (Round 84), every pixel this tab's OWN content saves
+                         vertically is a pixel handed straight to the log/image row - exactly the mechanism
+                         behind "enlarging the log/image frames."
+
+                         Fix: each filter is now a small self-contained "card" (name + Bin/Frames/Exp inline,
+                         each with its own short label since there's no longer one shared header row to
+                         align against - a WrapPanel's items don't stay column-aligned across wrapped lines,
+                         so a shared header above them would only ever line up with the FIRST row) laid out
+                         in a WrapPanel instead of one item per line. At a typical docked width this fits
+                         about 4 cards per row, wrapping the rest onto a second row - for a 7-filter wheel
+                         (Lum/Red/Green/Blue/Ha/OIII/SII) that's 4 + 3, matching the exact split described
+                         in the report, instead of 7 stacked rows. A narrower docked panel simply wraps to
+                         fewer cards per row (down to 1) rather than clipping anything - the WrapPanel
+                         degrades gracefully instead of assuming a specific panel width. -->
+                    <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                        <ScrollViewer MaxHeight="130" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl ItemsSource="{Binding DarkFrameRows}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="#FF3E4B54" BorderThickness="1" Margin="0,0,6,6" Padding="6,4">
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding FilterName}" FontWeight="SemiBold" FontSize="11" Margin="0,0,0,3"/>
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="Bin" FontSize="9" Opacity="0.6" VerticalAlignment="Center" Margin="0,0,2,0"/>
+                                                    <ComboBox Width="38" ItemsSource="{StaticResource BinningOptions}"
+                                                              SelectedItem="{Binding BinningFactor}"
+                                                              IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}">
+                                                        <ComboBox.ItemTemplate>
+                                                            <DataTemplate>
+                                                                <TextBlock Text="{Binding StringFormat={}{0}x}"/>
+                                                            </DataTemplate>
+                                                        </ComboBox.ItemTemplate>
+                                                    </ComboBox>
+                                                    <TextBlock Text="Fr" FontSize="9" Opacity="0.6" VerticalAlignment="Center" Margin="6,0,2,0"/>
+                                                    <TextBox Width="30" Text="{Binding FrameCount, UpdateSourceTrigger=PropertyChanged}"
+                                                              IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}"/>
+                                                    <TextBlock Text="Exp" FontSize="9" Opacity="0.6" VerticalAlignment="Center" Margin="6,0,2,0"/>
+                                                    <TextBox Width="40" Text="{Binding ExposureSeconds, StringFormat=F1, UpdateSourceTrigger=PropertyChanged}"
+                                                              IsEnabled="{Binding DataContext.IsRunning, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource InverseBooleanConverter}}"/>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1" Orientation="Horizontal">
                         <Button Content="Capture dark frames" Command="{Binding RunDarkFramesCommand}"
                                 IsEnabled="{Binding IsRunning, Converter={StaticResource InverseBooleanConverter}}"
                                 Margin="0,0,6,0" Padding="8,3"/>
@@ -537,31 +639,84 @@
             </TabItem>
         </TabControl>
 
-        <Separator Grid.Row="3" Margin="0,0,0,8"/>
+        <!-- ROUND 93 - the per-frame histogram square (Rounds 77-92's whole saga of position/size/missing-
+             curve fixes - see kb.txt for that full history) was removed per explicit request: "if we
+             delete the histogram will we gain any more vertical space where the objects below it can move
+             up? ... Yes, I don't think it's really that useful anyway." It was a fixed 75x75 square sharing
+             this Auto-height row with StatusText; since an Auto row sizes to its tallest child, the square
+             (taller than StatusText's own 1-2 wrapped lines) was what set this row's height. Removing it
+             lets this row shrink to whatever StatusText itself actually needs, and the log/image row below
+             (Grid.Row="5", the outer Grid's own "*" row - it takes whatever height is left over) gains that
+             freed space directly.
 
-        <Grid Grid.Row="4">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="*"/>
-            </Grid.RowDefinitions>
+             ROUND 96 - StatusText's MaxWidth="220" (left over from Round 90, back when this row's second
+             column held the histogram and StatusText needed to stay narrow to leave it room) was never
+             removed when Round 93 deleted that second column above, so this text kept wrapping at 220px
+             even though nothing else shares the row with it any more - reported directly: "It no longer
+             need to unless it extends to the right of this window." Dropped MaxWidth (and the now-
+             redundant HorizontalAlignment="Left", which only mattered for capping within that old 220px
+             box) so the TextBlock uses the full width the Grid actually gives it and only wraps once a
+             line would run past the panel's real right edge, same as any other unconstrained wrapping
+             TextBlock in this file. -->
+        <TextBlock Grid.Row="2" Text="{Binding StatusText}" TextWrapping="Wrap" FontWeight="SemiBold"
+                   Margin="0,0,0,8" VerticalAlignment="Top"/>
 
-            <TextBlock Grid.Row="0" Text="{Binding StatusText}" TextWrapping="Wrap" FontWeight="SemiBold" Margin="0,0,0,4"/>
+        <Separator Grid.Row="4" Margin="0,0,0,8"/>
+
+        <!-- ROUND 69 - two columns: the running log (always present) and, when the Options page's "Show
+             captured image" toggle is on, the most recently captured frame at the same width next to it.
+             ShowImagePreview is bound via BoolToGridLengthConverter so the image column actually
+             collapses to 0 width when off - the log then has the row to itself, exactly as before this
+             round - rather than just hiding the image and leaving dead blank space.
+
+             ROUND 84 - this Grid used to also hold StatusText and the shared histogram (Round 83). Both
+             moved up to their own row above the Separator (Grid.Row="2", see above) - "above the horizontal
+             line above the log" - so this Grid is back to holding just the log and image, maximizing their
+             shared vertical space. Only one row needed now, so the RowDefinitions/per-row Grid.Row values
+             Round 83 added here are removed again. -->
+        <Grid Grid.Row="5">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="{Binding ShowImagePreview, Converter={StaticResource BoolToGridLengthConverter}}"/>
+            </Grid.ColumnDefinitions>
 
             <!-- Running log: one line per search attempt and per accepted (keeper) frame, exposure and
                  ADU included - this is the "does NINA show what the exposure and ADU is after taking the
                  exposure" running log. Newest entry is added at the end; ScrollIntoView keeps it visible
                  without the user having to scroll manually during a run. Styled with NINA's own default
                  dark background (#273238, sampled directly from the app rather than guessed) and white
-                 text, matching NINA's own look instead of the default grey-on-white ListBox. -->
-            <ListBox Grid.Row="1" x:Name="RunLogListBox" ItemsSource="{Binding RunLog}"
+                 text, matching NINA's own look instead of the default grey-on-white ListBox.
+
+                 ROUND 82 - reported: "for the display log is it possible to word wrap each line rather
+                 than having to scroll?" Two changes needed together - either alone doesn't work:
+                 1) HorizontalScrollBarVisibility changed from "Auto" to "Disabled" - as long as
+                    horizontal scrolling is allowed, the ListBox's internal panel gives each item
+                    unlimited width to lay out on one line (that's the whole point of a horizontal
+                    scrollbar), so TextWrapping never had anything to wrap AGAINST. Disabling horizontal
+                    scroll constrains items to the ListBox's actual width, which is what makes wrapping
+                    possible at all.
+                 2) An explicit ItemTemplate is now needed because RunLog is a plain
+                    ObservableCollection<string> - without one, ListBox's default string rendering doesn't
+                    expose a TextWrapping property to set. The TextBlock below binds directly to the
+                    string item ({Binding} with no path) and sets TextWrapping="Wrap".
+                 VerticalScrollBarVisibility stays "Auto" - wrapped lines make the log taller per entry,
+                 not wider, so vertical scrolling is still exactly what's needed once entries exceed the
+                 visible height. -->
+            <ListBox Grid.Column="0" x:Name="RunLogListBox" ItemsSource="{Binding RunLog}"
                      FontFamily="Consolas" FontSize="11"
                      Background="#FF273238" Foreground="White" BorderBrush="#FF273238"
-                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      ScrollViewer.VerticalScrollBarVisibility="Auto">
+                <ListBox.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" TextWrapping="Wrap"/>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
                         <Setter Property="Background" Value="#FF273238"/>
                         <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
                         <Style.Triggers>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter Property="Background" Value="#FF3E4B54"/>
@@ -571,6 +726,97 @@
                     </Style>
                 </ListBox.ItemContainerStyle>
             </ListBox>
+
+            <!-- ROUND 69 - most recently captured frame, updated after every capture (SmartCalFramesVM.
+                 LastCapturedImage). Same width as the log (both "*" columns above). ROUND 73 - now a
+                 nested Grid instead of a bare Border: a small zoom toolbar on top (mirrors NINA's own
+                 image-view toolbar - see this round's discussion screenshot) and the zoomable/scrollable
+                 image below it. Background matches the log's own dark background so an empty/not-yet-
+                 captured preview reads as part of the same panel rather than a stray white box.
+
+                 ROUND 83 - this Grid used to have a third row holding a histogram plot underneath the
+                 image ("the histogram similar to the Flat Wizard display", Round 73). That histogram moved
+                 out to its own row, shared across all four tabs - just toolbar + image here now.
+
+                 ROUND 84 - the histogram (and StatusText) moved again, from Round 83's row below the
+                 Separator to a new row ABOVE it (Grid.Row="2" of the outer Grid - see further up this
+                 file) - this Grid's own Grid.Row (in the outer log/image Grid) dropped from "2" to "0"
+                 since that outer Grid no longer has any other rows to share. -->
+            <Grid Grid.Column="1" Margin="6,0,0,0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <!-- ROUND 73 - zoom toolbar. ImageZoom is a plain multiplier (1.0 = 100%) bound to the
+                     ScaleTransform below; ZoomIn/ZoomOut multiply by 1.25 each click (clamped [0.25x,
+                     8x] in the VM), Reset returns to 1.0. ImageZoomPercentText gives the live "125%"-
+                     style readout next to the buttons.
+
+                     ROUND 74 - added the "Fit" button per explicit report that manual zoom percentages
+                     couldn't reliably show the whole frame ("Even at 25% it still too large to fit inside
+                     the window"). Fit is now also the default mode (VM's FitToWindow starts true), so a
+                     freshly captured frame is fully visible with no button presses needed - the +/-/1:1
+                     buttons remain for zooming into detail afterward, and each one explicitly drops back
+                     out of Fit mode (see the VM), since a manual multiplier and "always fill the
+                     available space" can't both size the same Image at once. -->
+                <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,4">
+                    <Button Content="Fit" Command="{Binding FitToWindowCommand}" Padding="8,2" ToolTip="Scale the whole frame to fill the available space"/>
+                    <Button Content="-" Command="{Binding ZoomOutCommand}" Padding="8,2" MinWidth="26" Margin="8,0,0,0" ToolTip="Zoom out"/>
+                    <Button Content="+" Command="{Binding ZoomInCommand}" Padding="8,2" MinWidth="26" Margin="4,0,0,0" ToolTip="Zoom in"/>
+                    <Button Content="1:1" Command="{Binding ResetZoomCommand}" Padding="8,2" Margin="4,0,0,0" ToolTip="Reset zoom to 100%"/>
+                    <TextBlock Text="{Binding ImageZoomPercentText}" VerticalAlignment="Center" Margin="8,0,0,0" Opacity="0.8"/>
+                </StackPanel>
+
+                <!-- ROUND 74 - two mutually-exclusive display modes sharing this same cell, switched by
+                     FitToWindow's Visibility bindings (only one is ever visible at a time):
+
+                     1) Fit mode (default): the Image sits directly in a Viewbox with
+                        Stretch="Uniform" + StretchDirection="Both", which scales the ENTIRE frame - up
+                        or down, whichever is needed - to exactly fill whatever space this Border actually
+                        has right now. This is the fix for the reported bug: a fixed zoom PERCENTAGE (the
+                        old always-on ScrollViewer+ScaleTransform below) has no way to know the real pixel
+                        size of the captured frame vs. the real size of the docked panel, so a hardcoded
+                        25% could still be larger than the panel; a Viewbox computes the correct scale
+                        from the actual available size instead of guessing at a percentage.
+
+                     2) Manual-zoom mode (unchanged from Round 73, just now conditional): the same
+                        ScrollViewer + ScaleTransform as before, for examining detail once the whole frame
+                        has already been seen - Stretch="Uniform" is kept on this Image too so it still
+                        renders at a sane starting size before ImageZoom scales it further, and the
+                        ScrollViewer lets you pan once zoomed past the visible area. -->
+                <!-- ROUND 93 - reported: "the image needs to be placed as high to the right of the log as
+                     it can go. Just under the horizontal line." This Border already fills the full "*"
+                     row height to match the log's own height (deliberate - keeps the two dark panels the
+                     same visual height), and it already sits immediately below the Separator above.
+                     What wasn't pinned to the top was the CONTENT inside it: a Viewbox with more available
+                     height than its scaled child needs centers that child vertically by default (the same
+                     "explicit/constrained size + default Stretch/Center behavior floats away from the top"
+                     class of WPF gotcha already hit and fixed for the histogram square in Rounds 88/89) -
+                     so on anything shorter than a very tall docked panel, the captured frame appeared to
+                     float in the middle of this column instead of sitting flush under the separator like
+                     the log's own text does. Fix: VerticalAlignment="Top" on the Viewbox itself (Fit mode)
+                     so the scaled image renders starting at the top of the available space, with any
+                     leftover room pushed below it instead of split above and below. The manual-zoom
+                     ScrollViewer branch already anchors its content to the top-left by default (a
+                     ScrollViewer never centers), so it needed no change. -->
+                <Border Grid.Row="1" Background="#FF273238" BorderBrush="#FF273238" BorderThickness="1">
+                    <Grid>
+                        <Viewbox Stretch="Uniform" StretchDirection="Both" VerticalAlignment="Top"
+                                 Visibility="{Binding FitToWindow, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Image Source="{Binding LastCapturedImage}" RenderOptions.BitmapScalingMode="Fant"/>
+                        </Viewbox>
+                        <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                                      Visibility="{Binding FitToWindow, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                            <Image Source="{Binding LastCapturedImage}" Stretch="Uniform" RenderOptions.BitmapScalingMode="Fant">
+                                <Image.LayoutTransform>
+                                    <ScaleTransform ScaleX="{Binding ImageZoom}" ScaleY="{Binding ImageZoom}"/>
+                                </Image.LayoutTransform>
+                            </Image>
+                        </ScrollViewer>
+                    </Grid>
+                </Border>
+            </Grid>
         </Grid>
     </Grid>
 </UserControl>

@@ -122,6 +122,16 @@
         <TextBlock Text="{Binding LogFileFolder}" TextWrapping="Wrap" Opacity="0.7" FontSize="11"/>
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,10,0,0">
+            <TextBlock Text="Show captured image:" VerticalAlignment="Center" Margin="0,0,8,0"/>
+            <CheckBox IsChecked="{Binding ShowCapturedImagePreview}" Style="{StaticResource SmartCalCheckBoxStyle}" VerticalAlignment="Center"/>
+        </StackPanel>
+        <TextBlock TextWrapping="Wrap" Opacity="0.7" FontSize="11" Margin="0,2,0,0">
+            <Run Text="When on, the dockable panel's running log splits in half and shows the most recently captured frame next to it, the same width as the log, with its own zoom controls and a histogram underneath it - updated after every capture (search attempts and keeper frames alike, for all four capture functions). Off by default; the log alone keeps the full width until this is turned on."/>
+        </TextBlock>
+
+        <TextBlock Text="Cover behavior" Margin="0,10,0,0" FontWeight="Bold"/>
+
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,4,0,0">
             <TextBlock Text="Pause for cover swap:" VerticalAlignment="Center" Margin="0,0,8,0"/>
             <CheckBox IsChecked="{Binding PauseForCoverSwap}" Style="{StaticResource SmartCalCheckBoxStyle}" VerticalAlignment="Center"/>
         </StackPanel>

@@ -65,6 +65,13 @@
     -->
     <PackageReference Include="NINA.Plugin" Version="3.2.0.9001" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!--
+      ROUND 93 - the OxyPlot.Wpf package reference (added Round 73 for the image-preview panel's
+      histogram) was removed here. The histogram feature it served was removed entirely per explicit
+      request ("rip out all dead code" following "I don't think it's really that useful anyway"), and
+      no code anywhere in this project references any OxyPlot type any more - see kb.txt for the
+      feature's full history if it's ever wanted back.
+    -->
   </ItemGroup>
 
   <ItemGroup>
@@ -117,6 +124,10 @@
       this round of fixes is chasing. Only this plugin's own DLL and
       genuinely-private third-party dependencies (Newtonsoft.Json.dll,
       etc.) should ever land in the plugin folder.
+
+      ROUND 73 added an OxyPlot.*.dll exclusion here for the project's now-removed histogram feature;
+      ROUND 93 dropped it along with the OxyPlot.Wpf package reference above, since there's no longer
+      any OxyPlot dependency to build or ship at all.
     -->
     <Copy SourceFiles="@(PluginOutputFiles)"
           DestinationFolder="$(LocalAppData)\NINA\Plugins\3.0.0\SmartCalFrames\%(RecursiveDir)"

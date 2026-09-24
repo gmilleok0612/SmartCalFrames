@@ -9,7 +9,6 @@ using System.Windows.Input;
 using System.Windows.Media;
 using NINA.Core.Model;
 using NINA.Core.Utility;
-using NINA.Equipment.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Profile.Interfaces;
@@ -77,17 +76,78 @@ namespace SmartCalFrames.Dockable {
             Instance = this;
 
             Title = "Smart Calibration Frames";
-            // Reuses NINA's own Flat Wizard glyph so the dockable panel's
-            // tab icon looks native. If ImageGeometry's type on your
-            // installed DockableVM base isn't GeometryGroup, adjust the
-            // cast here only.
-            if (System.Windows.Application.Current?.Resources["FlatWizardSVG"] is GeometryGroup geometry) {
-                ImageGeometry = geometry;
-            }
+            // Plugin-owned stacked-frames glyph - same shape as the SCFStackedFramesSVG resource in
+            // Templates/SmartCalDataTemplates.xaml (which SmartCalSequenceItem's
+            // ExportMetadata("Icon", ...) references for the Advanced Sequencer tree), but built
+            // directly here with Geometry.Parse rather than looked up via
+            // Application.Current.Resources["SCFStackedFramesSVG"]. Reason: this constructor runs
+            // during MEF composition, and there's no guarantee NINA has finished merging this
+            // plugin's own ResourceDictionary into the app's resources by that point - a lookup here
+            // can silently return null (leaving ImageGeometry unset -> NINA's generic placeholder
+            // icon in the Imaging tab's tool strip) even though the exact same key resolves fine
+            // later, when the Advanced Sequencer actually renders the tree item on screen. Building
+            // the Geometry inline sidesteps that ordering question entirely.
+            //
+            // "F1 " prefix = WPF path mini-language for FillRule=Nonzero. Without it, Geometry.Parse
+            // defaults to EvenOdd. Nonzero is what the SCFStackedFramesSVG XAML resource's own
+            // PathGeometry.FillRule is also set to, so both places render identically.
+            //
+            // This shape is three stacked, OPAQUELY OCCLUDING frames (like a fanned stack of opaque
+            // cards, each with a window cut out) rather than three simple hollow rings unioned
+            // together - an earlier version let a "behind" frame's solid body show through a "front"
+            // frame's own hole (physically correct for a literal see-through picture frame, but read as
+            // merged/see-through instead of three distinct stacked frames). Fixed by z-ordering the
+            // three frames front-to-back and subtracting each frame's FULL outer footprint (not just
+            // its ring) from every frame behind it, so a frame in front fully occludes what's behind it,
+            // including through its own window. The resulting compound shape (4 closed loops) was
+            // computed numerically (rasterized mask + boolean occlusion + marching-squares contour +
+            // Douglas-Peucker simplification) rather than hand-authored with arcs, which is why the
+            // coordinates below are a dense polygon rather than clean A-command arcs - at this icon's
+            // rendered size (16-32px) the polygon corners are visually indistinguishable from the true
+            // rounded corners they approximate. Note: this is a single-Fill Geometry - NINA applies one
+            // theme brush to the whole shape, there's no separate stroke/second-color slot to make the
+            // frame border and interior two different fixed colors.
+            var stackedFramesIcon = new GeometryGroup();
+            // The GROUP's own FillRule is what actually governs the combined render (it doesn't
+            // inherit/respect a child Geometry's individually-set FillRule) - setting only the child
+            // PathGeometry's fill rule (via the "F1 " prefix below) was an earlier, ineffective fix.
+            stackedFramesIcon.FillRule = FillRule.Nonzero;
+            stackedFramesIcon.Children.Add(Geometry.Parse(
+                "F1 M1.60,0.50 L10.42,0.50 L10.94,0.71 L11.31,1.08 L11.48,1.47 L11.48,6.47 L16.32,6.49 L16.93,6.71 L17.30,7.07 L17.51,7.68 L17.53,12.52 L22.53,12.52 L22.92,12.69 L23.29,13.06 L23.50,13.58 L23.50,22.40 L23.20,23.05 L22.87,23.33 L22.40,23.50 L13.58,23.50 L13.06,23.29 L12.69,22.92 L12.52,22.53 L12.52,17.53 L7.68,17.51 L7.07,17.30 L6.71,16.93 L6.49,16.32 L6.47,11.48 L1.47,11.48 L1.08,11.31 L0.71,10.94 L0.50,10.42 L0.50,1.60 L0.80,0.95 L1.13,0.67 Z " +
+                "M1.60,1.06 L1.28,1.26 L1.06,1.60 L1.06,10.42 L1.15,10.59 L1.43,10.87 L1.69,10.96 L10.37,10.91 L10.63,10.83 L10.96,10.33 L10.96,1.69 L10.87,1.43 L10.42,1.06 Z " +
+                "M11.50,7.05 L11.48,10.50 L11.22,11.02 L10.76,11.39 L10.50,11.48 L7.05,11.50 L7.05,16.36 L7.16,16.60 L7.64,16.95 L12.50,16.95 L16.36,16.95 L16.58,16.86 L16.91,16.49 L16.95,7.64 L16.84,7.40 L16.36,7.05 Z " +
+                "M17.53,13.04 L17.51,16.32 L17.30,16.93 L16.93,17.30 L16.32,17.51 L13.04,17.53 L13.04,22.31 L13.13,22.57 L13.58,22.94 L18.45,22.94 L22.40,22.94 L22.66,22.81 L22.89,22.53 L22.94,13.58 L22.57,13.13 L22.31,13.04 Z"));
+            stackedFramesIcon.Freeze();
+            ImageGeometry = stackedFramesIcon;
 
             KnownFilters = new ObservableCollection<string>();
             RunLog = new ObservableCollection<string>();
             StopCommand = new RelayCommand(_ => _cts?.Cancel());
+
+            // ROUND 73 - image-preview zoom controls, per explicit request ("increase or decrease the
+            // image size... similar to the Flat Wizard display"). ImageZoom is a plain multiplier bound
+            // to a ScaleTransform on the preview Image element in the View (1.0 = 100%/no scaling).
+            // Clamped to a sane [0.25, 8.0] range so repeated clicks can't zoom to nothing or to an
+            // unusably huge, memory-heavy render size.
+            //
+            // ROUND 74 FIX - reported: "Even at 25% it still too large to fit inside the window. There
+            // should be a way to view the entire frame that is equal to the size of the window." Root
+            // cause: a fixed zoom PERCENTAGE has no idea how big the actual captured frame is or how big
+            // the docked panel currently is - a full-frame camera's native pixel size can be large enough
+            // that even 25% (the bottom of the old clamp range) is still wider than a ~350px docked
+            // panel, and a narrower/wider panel would need a different "25%" every time anyway. Any
+            // manual zoom-BY-PERCENTAGE control is fundamentally the wrong tool for "show me the whole
+            // frame" - what's actually needed is a fit computed from the real available space, which is
+            // exactly what View's Viewbox (Stretch="Uniform", StretchDirection="Both") does automatically
+            // - see FitToWindow below and the two-mode Border in the View. Manual zoom is kept alongside
+            // it (still useful for examining detail once the whole frame is visible), it's just no longer
+            // the ONLY way to view a captured frame - clicking any zoom button now explicitly drops out
+            // of fit mode, since a manual multiplier and "fill the available space" can't both drive the
+            // same Image at once.
+            ZoomInCommand = new RelayCommand(_ => { FitToWindow = false; ImageZoom = Math.Min(ImageZoom * 1.25, 8.0); });
+            ZoomOutCommand = new RelayCommand(_ => { FitToWindow = false; ImageZoom = Math.Max(ImageZoom / 1.25, 0.25); });
+            ResetZoomCommand = new RelayCommand(_ => { FitToWindow = false; ImageZoom = 1.0; });
+            FitToWindowCommand = new RelayCommand(_ => FitToWindow = true);
 
             // ROUND 67 - "Pause for cover swap" manual-gear support (see PauseForCoverSwapAsync below
             // and SmartCalSettings.PauseForCoverSwap). Continue only ever does anything while a pause is
@@ -160,6 +220,91 @@ namespace SmartCalFrames.Dockable {
         private bool _isRunning;
         public bool IsRunning { get => _isRunning; set { _isRunning = value; RaisePropertyChanged(); } }
 
+        /// <summary>
+        /// ROUND 69 - mirrors Smart Flat Wizard's separate image-preview window (as an inline split
+        /// instead of a separate window, per explicit request). Always reads the Options-page setting
+        /// fresh (same "load fresh right before use" convention as DarkFramesPerGroup/FlatFrameCount
+        /// above) rather than caching it - RefreshImagePreviewVisibility below is what tells this
+        /// already-bound property's WPF binding to re-query it after the Options page changes it.
+        /// </summary>
+        public bool ShowImagePreview => new SmartCalSettingsProvider(_profileService).Load().ShowCapturedImagePreview;
+
+        /// <summary>
+        /// ROUND 69 - companion to SmartCalOptionsVM.ShowCapturedImagePreview's setter: that VM is a
+        /// separate object and has no way to make THIS VM's already-bound ShowImagePreview property
+        /// binding re-read the setting on its own. Mirrors the existing Round 34 cross-VM refresh pattern
+        /// (RefreshFilterDefault) for the same class of problem in the other direction.
+        /// </summary>
+        public void RefreshImagePreviewVisibility() => RaisePropertyChanged(nameof(ShowImagePreview));
+
+        private System.Windows.Media.Imaging.BitmapSource _lastCapturedImage;
+        /// <summary>
+        /// ROUND 69 - the most recently captured frame (search-phase attempt or production/keeper frame,
+        /// whichever happened last, from whichever of the four capture functions is currently running).
+        /// ROUND 71 - stretched (SmartCalCaptureService.EmitPreviewAsync applies the profile's own
+        /// auto-stretch settings) rather than the raw linear render, so it actually shows visible detail
+        /// instead of a near-featureless gray square. ROUND 72 - now fed by all four capture functions
+        /// (Flats/Flat Darks/Bias/Dark Frames), not just Flats. Updated regardless of whether
+        /// ShowImagePreview is currently true - the View's own binding decides visibility, not this
+        /// property - so there's never a stale frame the moment the Options-page toggle is flipped on.
+        /// </summary>
+        public System.Windows.Media.Imaging.BitmapSource LastCapturedImage {
+            get => _lastCapturedImage;
+            private set { _lastCapturedImage = value; RaisePropertyChanged(); }
+        }
+
+        private double _imageZoom = 1.0;
+        /// <summary>
+        /// ROUND 73 - preview-image zoom multiplier (1.0 = 100%), per explicit request ("increase or
+        /// decrease the image size"). Bound to a ScaleTransform on the preview Image element; the Image
+        /// itself sits inside a ScrollViewer in the View so a zoomed-in frame can be panned/scrolled
+        /// rather than just clipped. Adjusted via ZoomInCommand/ZoomOutCommand/ResetZoomCommand above.
+        /// Only actually drives the displayed size while FitToWindow is false - see FitToWindow below.
+        /// </summary>
+        public double ImageZoom {
+            get => _imageZoom;
+            set { _imageZoom = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ImageZoomPercentText)); }
+        }
+
+        private bool _fitToWindow = true;
+        /// <summary>
+        /// ROUND 74 - per explicit report that manual zoom percentages ("even at 25%") couldn't reliably
+        /// show a whole captured frame inside the docked panel's actual (variable) available space. When
+        /// true, the View displays the preview image in a Viewbox (Stretch="Uniform", StretchDirection=
+        /// "Both") instead of the manual-zoom ScrollViewer+ScaleTransform, so the ENTIRE frame is always
+        /// scaled - up or down, whichever is needed - to exactly fill the space actually available right
+        /// now, at whatever size the docked panel happens to be. Defaults to true so a freshly captured
+        /// frame is fully visible immediately with no zoom fiddling required; any zoom button click drops
+        /// this back to false (see ZoomInCommand/ZoomOutCommand/ResetZoomCommand above) since manual zoom
+        /// and "fill the available space" are mutually exclusive ways of sizing the same Image. The "Fit"
+        /// button (FitToWindowCommand) returns to this mode from a manual zoom level.
+        /// </summary>
+        public bool FitToWindow {
+            get => _fitToWindow;
+            set { _fitToWindow = value; RaisePropertyChanged(); RaisePropertyChanged(nameof(ImageZoomPercentText)); }
+        }
+
+        /// <summary>ROUND 73 - live "125%"-style readout next to the zoom buttons, mirroring the
+        /// percentage shown in NINA's own image-view toolbar (see the screenshot in this round's
+        /// discussion). ROUND 74 - reads "Fit" instead of a percentage while FitToWindow is active, since
+        /// ImageZoom itself isn't what's actually sizing the image in that mode.</summary>
+        public string ImageZoomPercentText => FitToWindow ? "Fit" : $"{ImageZoom:P0}";
+
+        /// <summary>
+        /// ROUND 69 companion to AppendExternalStatus - mirrors the most recently captured frame from a
+        /// sequence-triggered run (SmartCalSequenceItem, running on NINA's own sequencer thread, not this
+        /// VM's UI thread) onto this panel's image preview. ROUND 73-78 briefly extended this to also
+        /// carry a per-frame histogram (data points + bit depth); ROUND 93 removed the histogram feature
+        /// entirely per explicit request ("rip out all dead code" following "I don't think it's really
+        /// that useful anyway"), so this is back to carrying just the image.
+        /// </summary>
+        public void AppendExternalPreview(System.Windows.Media.Imaging.BitmapSource image) {
+            if (image == null) return;
+            System.Windows.Application.Current?.Dispatcher.Invoke(() => {
+                LastCapturedImage = image;
+            });
+        }
+
         public ObservableCollection<string> KnownFilters { get; }
 
         /// <summary>
@@ -208,6 +353,15 @@ namespace SmartCalFrames.Dockable {
         public string FilterDefaultsSummary { get => _filterDefaultsSummary; set { _filterDefaultsSummary = value; RaisePropertyChanged(); } }
 
         public ICommand StopCommand { get; }
+        public ICommand ZoomInCommand { get; }
+        public ICommand ZoomOutCommand { get; }
+        public ICommand ResetZoomCommand { get; }
+        public ICommand FitToWindowCommand { get; }
+
+        /// <summary>ROUND 66 - Run Flats tab's own "Capture flats" button. Runs RunAsync(allFilters:
+        /// false), i.e. just the filter currently selected in this tab's own dropdown (SelectedFilter) -
+        /// see the constructor comment for why this was restored.</summary>
+        public IAsyncCommand RunFlatsCommand { get; }
 
         // ---- ROUND 67 - "Pause for cover swap" manual-gear support ----
 
@@ -254,11 +408,6 @@ namespace SmartCalFrames.Dockable {
         public ICommand ContinueAfterCoverSwapCommand { get; }
 
         private TaskCompletionSource<bool> _coverSwapContinueSignal;
-
-        /// <summary>ROUND 66 - Run Flats tab's own "Capture flats" button. Runs RunAsync(allFilters:
-        /// false), i.e. just the filter currently selected in this tab's own dropdown (SelectedFilter) -
-        /// see the constructor comment for why this was restored.</summary>
-        public IAsyncCommand RunFlatsCommand { get; }
 
         // ---- ROUND 44 - Run Flats tab: "Frames per filter" simple control ----
         //
@@ -402,6 +551,14 @@ namespace SmartCalFrames.Dockable {
         public ObservableCollection<DarkFrameRowVM> DarkFrameRows { get; }
 
         public IAsyncCommand RunDarkFramesCommand { get; }
+
+        // ROUND 80 added SelectedTabIndex/IsDarkFramesTabSelected here, TwoWay-bound to the View's
+        // TabControl.SelectedIndex, so the shared image/histogram row could tell which tab was active and
+        // hide itself specifically while the Dark Frames tab's own (then-separate) embedded histogram was
+        // showing instead. ROUND 83 removed the Dark Frames tab's embedded histogram - the histogram is
+        // now the same single shared element on every tab, so there's nothing left that needs to know
+        // which tab is selected. Both properties are gone; the TabControl in the View is a plain,
+        // unbound-SelectedIndex control again.
 
         // ---- ROUND 43 - "Run All" strip bindable state ----
 
@@ -583,14 +740,24 @@ namespace SmartCalFrames.Dockable {
         /// bias/flat-dark frame light-sealed is a separate physical cap the user places by hand, and the
         /// only way to get the flat panel itself in front of the scope is the user putting IT there by
         /// hand too - there's nothing to command over ASCOM either way. This halts the run at the given
-        /// point, shows `message` (StatusText, RunLog, and the dedicated CoverSwapMessage the panel's
-        /// Continue button sits next to), and waits for either a Continue click or the run being
-        /// cancelled - same `token` (this VM's own _cts.Token in every call site below) every other await
-        /// in this class already respects, so Stop during a pause behaves exactly like Stop during a real
-        /// exposure: an OperationCanceledException that the caller's existing try/catch already handles.
+        /// point, shows `message` (RunLog and the dedicated CoverSwapMessage the panel's Continue button
+        /// sits next to), and waits for either a Continue click or the run being cancelled - same `token`
+        /// (this VM's own _cts.Token in every call site below) every other await in this class already
+        /// respects, so Stop during a pause behaves exactly like Stop during a real exposure: an
+        /// OperationCanceledException that the caller's existing try/catch already handles.
         ///
-        /// Safe to call from a background thread - RunLog/StatusText/IsAwaitingCoverSwap/CoverSwapMessage
-        /// are all WPF-bound, so every write goes through Dispatcher.Invoke, same convention as
+        /// ROUND 93 - reported: "at the top under the red banner, a duplicate text appears... can we
+        /// eliminate the extra one underneath the red banner since it is duplicative?" This used to also
+        /// set StatusText to the same message - harmless when StatusText and the pause banner lived far
+        /// apart on screen, but Round 91 moved the StatusText row to sit immediately below the pause
+        /// banner row, so the identical sentence started rendering twice in a row. Removed the StatusText
+        /// write here; RunLog (the scrolling history) and CoverSwapMessage (the banner itself) still show
+        /// it, and StatusText now simply keeps whatever it already said (e.g. "Running Filter X...") until
+        /// the run's next real status update overwrites it, rather than being redundantly overwritten with
+        /// the pause text.
+        ///
+        /// Safe to call from a background thread - RunLog/IsAwaitingCoverSwap/CoverSwapMessage are all
+        /// WPF-bound, so every write goes through Dispatcher.Invoke, same convention as
         /// ClearForExternalRun/AppendExternalStatus below (Dispatcher.Invoke from the UI thread itself -
         /// the case for every call site inside this VM - just runs synchronously in place, so this is
         /// safe either way).
@@ -599,7 +766,6 @@ namespace SmartCalFrames.Dockable {
             var signal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
             _coverSwapContinueSignal = signal;
             System.Windows.Application.Current?.Dispatcher.Invoke(() => {
-                StatusText = message;
                 RunLog.Add($"{DateTime.Now:HH:mm:ss}  {message}");
                 CoverSwapMessage = message;
                 IsAwaitingCoverSwap = true;
@@ -710,7 +876,16 @@ namespace SmartCalFrames.Dockable {
 
                 var service = new SmartCalCaptureService(
                     _cameraMediator, _filterWheelMediator, _flatDeviceMediator, _imagingMediator,
-                    _imageSaveMediator, provider, settings);
+                    _imageSaveMediator, provider, settings, _profileService,
+                    // ROUND 69 - mirrors Smart Flat Wizard's separate image-preview window. Fired after
+                    // EVERY capture (search-phase attempts and production frames alike) - always updates
+                    // LastCapturedImage regardless of whether the Options page toggle is currently on;
+                    // the View's own column-width binding (ShowImagePreview) is what actually decides
+                    // whether this is visible, so there's no stale image the moment the toggle is
+                    // flipped on. Called directly (no Dispatcher wrapping) since this run was started
+                    // from this VM's own UI-thread command handler - same reasoning as the `progress`
+                    // callback just below, which already touches RunLog/StatusText directly.
+                    onFrameCaptured: bmp => { LastCapturedImage = bmp; });
 
                 var camInfo = _cameraMediator.GetInfo();
                 int gain = camInfo?.Gain ?? -1;
@@ -812,13 +987,20 @@ namespace SmartCalFrames.Dockable {
                 RunLog.Add($"{DateTime.Now:HH:mm:ss}  {StatusText}");
                 return false;
             }
-            var preflightFlatInfo = _flatDeviceMediator.GetInfo();
-            if (preflightFlatInfo == null || !preflightFlatInfo.Connected) {
-                StatusText = "Flat panel (Cover Calibrator) is not connected. Connect it in the Equipment tab, then try again.";
-                RunLog.Add($"{DateTime.Now:HH:mm:ss}  {StatusText}");
-                return false;
-            }
-
+            // ROUND 76 FIX - reported: "SmartCalibrationFrames checks for connection to the flat panel
+            // always on any run - it should only do so when a flat run is attempted. It need not be
+            // connected for flat darks, bias, or dark frames." Removed the unconditional flat-panel-
+            // Connected preflight check that used to sit here (still present, deliberately, in RunAsync
+            // above - Flats genuinely needs the panel connected to turn its light on and command a
+            // brightness). Flat Darks doesn't need the panel connected at all: it only ever calls
+            // ToggleLight(false) as a best-effort "make sure the light isn't on" precaution
+            // (SmartCalCaptureService.RunFlatDarksAsync already wraps every ToggleLight(false) call in its
+            // own try/catch that logs a warning and continues rather than aborting - confirmed by reading
+            // that method directly, not assumed), and EnsureFlatPanelCoverClosedAsync below already no-ops
+            // safely when the panel is absent/disconnected (SmartCalRunPlanning.
+            // EnsureFlatPanelCoverClosedAsync: `if (info == null || !info.SupportsOpenClose) return true;`).
+            // So a disconnected (or entirely absent) flat panel was never actually a real obstacle to this
+            // capture - only this now-removed check was.
             var provider = new SmartCalSettingsProvider(_profileService);
             var settings = provider.Load();
             var groups = BuildDarkGroups(provider, settings);
@@ -846,7 +1028,16 @@ namespace SmartCalFrames.Dockable {
 
                 var service = new SmartCalCaptureService(
                     _cameraMediator, _filterWheelMediator, _flatDeviceMediator, _imagingMediator,
-                    _imageSaveMediator, provider, settings);
+                    _imageSaveMediator, provider, settings, _profileService,
+                    // ROUND 69 - mirrors Smart Flat Wizard's separate image-preview window. Fired after
+                    // EVERY capture (search-phase attempts and production frames alike) - always updates
+                    // LastCapturedImage regardless of whether the Options page toggle is currently on;
+                    // the View's own column-width binding (ShowImagePreview) is what actually decides
+                    // whether this is visible, so there's no stale image the moment the toggle is
+                    // flipped on. Called directly (no Dispatcher wrapping) since this run was started
+                    // from this VM's own UI-thread command handler - same reasoning as the `progress`
+                    // callback just below, which already touches RunLog/StatusText directly.
+                    onFrameCaptured: bmp => { LastCapturedImage = bmp; });
 
                 var camInfo = _cameraMediator.GetInfo();
                 int gain = camInfo?.Gain ?? -1;
@@ -896,13 +1087,9 @@ namespace SmartCalFrames.Dockable {
                 RunLog.Add($"{DateTime.Now:HH:mm:ss}  {StatusText}");
                 return false;
             }
-            var preflightFlatInfo = _flatDeviceMediator.GetInfo();
-            if (preflightFlatInfo == null || !preflightFlatInfo.Connected) {
-                StatusText = "Flat panel (Cover Calibrator) is not connected. Connect it in the Equipment tab, then try again.";
-                RunLog.Add($"{DateTime.Now:HH:mm:ss}  {StatusText}");
-                return false;
-            }
-
+            // ROUND 76 FIX - see the identical note in RunFlatDarksAsync above: Bias Frames doesn't need
+            // the flat panel connected either (same best-effort ToggleLight(false)/cover-guard reasoning),
+            // so the unconditional flat-panel-Connected preflight check that used to sit here was removed.
             var provider = new SmartCalSettingsProvider(_profileService);
             var settings = provider.Load();
             int frameCount = Math.Max(1, settings.BiasFrameCount);
@@ -921,7 +1108,16 @@ namespace SmartCalFrames.Dockable {
 
                 var service = new SmartCalCaptureService(
                     _cameraMediator, _filterWheelMediator, _flatDeviceMediator, _imagingMediator,
-                    _imageSaveMediator, provider, settings);
+                    _imageSaveMediator, provider, settings, _profileService,
+                    // ROUND 69 - mirrors Smart Flat Wizard's separate image-preview window. Fired after
+                    // EVERY capture (search-phase attempts and production frames alike) - always updates
+                    // LastCapturedImage regardless of whether the Options page toggle is currently on;
+                    // the View's own column-width binding (ShowImagePreview) is what actually decides
+                    // whether this is visible, so there's no stale image the moment the toggle is
+                    // flipped on. Called directly (no Dispatcher wrapping) since this run was started
+                    // from this VM's own UI-thread command handler - same reasoning as the `progress`
+                    // callback just below, which already touches RunLog/StatusText directly.
+                    onFrameCaptured: bmp => { LastCapturedImage = bmp; });
 
                 var camInfo = _cameraMediator.GetInfo();
                 int gain = camInfo?.Gain ?? -1;
@@ -980,13 +1176,9 @@ namespace SmartCalFrames.Dockable {
                 RunLog.Add($"{DateTime.Now:HH:mm:ss}  {StatusText}");
                 return false;
             }
-            var preflightFlatInfo = _flatDeviceMediator.GetInfo();
-            if (preflightFlatInfo == null || !preflightFlatInfo.Connected) {
-                StatusText = "Flat panel (Cover Calibrator) is not connected. Connect it in the Equipment tab, then try again.";
-                RunLog.Add($"{DateTime.Now:HH:mm:ss}  {StatusText}");
-                return false;
-            }
-
+            // ROUND 76 FIX - see the identical note in RunFlatDarksAsync above: Dark Frames doesn't need
+            // the flat panel connected either (same best-effort ToggleLight(false)/cover-guard reasoning),
+            // so the unconditional flat-panel-Connected preflight check that used to sit here was removed.
             var groups = BuildDarkFrameGroups();
             var misconfigured = FindMisconfiguredDarkFrameFilters();
             if (groups.Count == 0) {
@@ -1019,7 +1211,16 @@ namespace SmartCalFrames.Dockable {
                 var settings = provider.Load();
                 var service = new SmartCalCaptureService(
                     _cameraMediator, _filterWheelMediator, _flatDeviceMediator, _imagingMediator,
-                    _imageSaveMediator, provider, settings);
+                    _imageSaveMediator, provider, settings, _profileService,
+                    // ROUND 69 - mirrors Smart Flat Wizard's separate image-preview window. Fired after
+                    // EVERY capture (search-phase attempts and production frames alike) - always updates
+                    // LastCapturedImage regardless of whether the Options page toggle is currently on;
+                    // the View's own column-width binding (ShowImagePreview) is what actually decides
+                    // whether this is visible, so there's no stale image the moment the toggle is
+                    // flipped on. Called directly (no Dispatcher wrapping) since this run was started
+                    // from this VM's own UI-thread command handler - same reasoning as the `progress`
+                    // callback just below, which already touches RunLog/StatusText directly.
+                    onFrameCaptured: bmp => { LastCapturedImage = bmp; });
 
                 var camInfo = _cameraMediator.GetInfo();
                 int gain = camInfo?.Gain ?? -1;
@@ -1097,10 +1298,18 @@ namespace SmartCalFrames.Dockable {
                 StatusText = "Camera is not connected. Connect it in the Equipment tab, then try again.";
                 return false;
             }
-            var preflightFlatInfo = _flatDeviceMediator.GetInfo();
-            if (preflightFlatInfo == null || !preflightFlatInfo.Connected) {
-                StatusText = "Flat panel (Cover Calibrator) is not connected. Connect it in the Equipment tab, then try again.";
-                return false;
+            // ROUND 76 FIX - reported: the flat panel connection was being required for every batch
+            // regardless of what was actually checked. Only Flats itself needs the panel connected (to
+            // turn its light on / command a brightness) - Flat Darks/Bias/Dark Frames don't (see the
+            // identical note in RunFlatDarksAsync above), so this check now only runs when RunFlatsSelected
+            // is actually checked, matching RunAsync's own (unconditional, and unchanged) check for a
+            // standalone Flats run.
+            if (RunFlatsSelected) {
+                var preflightFlatInfo = _flatDeviceMediator.GetInfo();
+                if (preflightFlatInfo == null || !preflightFlatInfo.Connected) {
+                    StatusText = "Flat panel (Cover Calibrator) is not connected. Connect it in the Equipment tab, then try again.";
+                    return false;
+                }
             }
 
             RunLog.Clear();

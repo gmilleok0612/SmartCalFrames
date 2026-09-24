@@ -1,6 +1,3 @@
-using System;
-using Newtonsoft.Json;
-
 namespace SmartCalFrames.Model {
 
     /// <summary>
@@ -13,14 +10,23 @@ namespace SmartCalFrames.Model {
     /// affects camera dark current, not the amount of light hitting the
     /// sensor, and treating it as a key would fragment history for no
     /// benefit.
+    ///
+    /// ROUND 94 - code review ("review the entire code for unneeded code no longer used and
+    /// errors") found this class's IEquatable&lt;T&gt;/Equals/GetHashCode implementation, and its
+    /// [JsonProperty] attributes (this type is never passed to JsonConvert anywhere - the codebase's
+    /// only real JSON serialization is SmartCalSequenceItem's own persisted fields, unrelated to
+    /// this class), were both leftovers with zero live callers - grepped the whole tree, confirmed
+    /// this key is only ever constructed once per run and consumed exclusively through ToString() in
+    /// log/status lines, never through a Dictionary/HashSet/Distinct()/GroupBy() keyed on it.
+    /// Removed both; only ToString() (genuinely used) and the plain data properties remain.
     /// </summary>
-    public class CalibrationBucketKey : IEquatable<CalibrationBucketKey> {
+    public class CalibrationBucketKey {
 
-        [JsonProperty] public string FilterName { get; set; }
-        [JsonProperty] public int BinningX { get; set; }
-        [JsonProperty] public int BinningY { get; set; }
-        [JsonProperty] public int Gain { get; set; }
-        [JsonProperty] public int Offset { get; set; }
+        public string FilterName { get; set; }
+        public int BinningX { get; set; }
+        public int BinningY { get; set; }
+        public int Gain { get; set; }
+        public int Offset { get; set; }
 
         public CalibrationBucketKey() { }
 
@@ -31,20 +37,6 @@ namespace SmartCalFrames.Model {
             Gain = gain;
             Offset = offset;
         }
-
-        public bool Equals(CalibrationBucketKey other) {
-            if (other is null) return false;
-            return string.Equals(FilterName, other.FilterName, StringComparison.OrdinalIgnoreCase)
-                && BinningX == other.BinningX
-                && BinningY == other.BinningY
-                && Gain == other.Gain
-                && Offset == other.Offset;
-        }
-
-        public override bool Equals(object obj) => Equals(obj as CalibrationBucketKey);
-
-        public override int GetHashCode() =>
-            HashCode.Combine(FilterName?.ToUpperInvariant(), BinningX, BinningY, Gain, Offset);
 
         public override string ToString() => $"{FilterName} bin{BinningX}x{BinningY} gain{Gain} off{Offset}";
     }

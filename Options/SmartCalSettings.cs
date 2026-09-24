@@ -27,8 +27,8 @@ namespace SmartCalFrames.Options {
         /// rather than accepting a best-effort result.
         /// </summary>
         public double MinExposureSeconds { get; set; } = 0.1;
-        /// <summary>Ceiling for the exposure correction above - not a normal operating value, just the outer bound before a run gives up and reports failure.</summary>
-        public double MaxExposureSeconds { get; set; } = 30.0;
+        /// <summary>Ceiling for the exposure correction above - not a normal operating value, just the outer bound before a run gives up and reports failure. Raised from 30.0 to 45.0 as part of this project's default-settings review (broadband flats land well under this; narrowband flats at low panel brightness can need the extra headroom to actually converge instead of escalating brightness first).</summary>
+        public double MaxExposureSeconds { get; set; } = 45.0;
         /// <summary>
         /// Fallback value used the very first time a filter has never had a default brightness saved
         /// (see SmartCalSettingsProvider.GetFilterBrightness/SetFilterBrightness), AND the real floor a
@@ -96,6 +96,24 @@ namespace SmartCalFrames.Options {
         /// </summary>
         public bool LogToFileEnabled { get; set; } = false;
 
+        /// <summary>
+        /// ROUND 69 - mirrors Smart Flat Wizard's separate image-preview window, but inline rather than
+        /// a separate window: when true, the dockable panel's shared log area (below the tabs) splits
+        /// into two equal-width halves - the running log on the left (same as always, just narrower) and
+        /// the most recently captured frame on the right, updated after every capture (both search-phase
+        /// attempts and production/keeper frames, across all four capture functions - not just Flats).
+        /// Off by default, matching this plugin's other "reveal more" toggles (Preview Groups, etc.) -
+        /// see SmartCalFramesVM.ShowImagePreview/LastCapturedImage/LastCapturedHistogram (ROUND 73 added
+        /// a histogram alongside the image) and SmartCalCaptureService's onFrameCaptured callback for the
+        /// mechanism.
+        ///
+        /// Default flipped to true as part of this project's default-settings review - given how much
+        /// this feature has been refined since Round 69 (positioning, sizing, and the Round 93 histogram
+        /// removal specifically to give the image more room), it's clearly a feature meant to be seen by
+        /// default rather than opted into.
+        /// </summary>
+        public bool ShowCapturedImagePreview { get; set; } = true;
+
         // ---- Flat darks ----
         /// <summary>
         /// How many dark frames to capture per unique exposure group on the dockable panel's "Flat
@@ -147,7 +165,14 @@ namespace SmartCalFrames.Options {
         /// as EnsureFlatPanelCoverClosedAsync/LeaveFlatPanelCoverClosedAfterRunAsync's own close-side
         /// check. Unrelated to PauseForCoverSwap above - that's for a MANUAL panel/cap swap; this is only
         /// about what a MOTORIZED cover does once a run ends.
+        ///
+        /// Default flipped to true as part of this project's default-settings review, once a real
+        /// (simulated) flip-flat panel with a motorized cover confirmed this behaves correctly - the
+        /// scope is now ready to point at the sky again the moment calibration finishes, with no manual
+        /// reopen step, for anyone whose panel actually supports it. Still a complete no-op for a
+        /// calibrator-only panel with no motorized cover (SupportsOpenClose false), so this changes
+        /// nothing for that hardware either way.
         /// </summary>
-        public bool OpenCoverAfterRun { get; set; } = false;
+        public bool OpenCoverAfterRun { get; set; } = true;
     }
 }

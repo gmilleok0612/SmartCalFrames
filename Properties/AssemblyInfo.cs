@@ -13,8 +13,8 @@ using System.Runtime.InteropServices;
 // NINA uses it to identify updates vs. a brand-new plugin.
 [assembly: Guid("8970f75b-3138-40f1-80d4-4d1898da383e")]
 
-[assembly: AssemblyVersion("1.0.0.2")]
-[assembly: AssemblyFileVersion("1.0.0.2")]
+[assembly: AssemblyVersion("1.0.0.3")]
+[assembly: AssemblyFileVersion("1.0.0.3")]
 
 // ---- NINA plugin manifest metadata ----
 // These AssemblyMetadata attributes are what NINA's plugin manager (and the
@@ -56,6 +56,6 @@ filter, from four dockable tabs or as an Advanced Sequencer instruction.
 [assembly: AssemblyMetadata("MinimumApplicationVersion", "3.2.0.9001")]
 [assembly: AssemblyMetadata("Tags", "flats,flat darks,bias frames,dark frames,calibration,automation,flat panel,sequencer")]
 [assembly: AssemblyMetadata("Homepage", "https://github.com/gmilleok0612/SmartCalFrames")]
-[assembly: AssemblyMetadata("FeaturedImageURL", "")]
+[assembly: AssemblyMetadata("FeaturedImageURL", "https://raw.githubusercontent.com/gmilleok0612/SmartCalFrames/main/icon.png")]
 [assembly: AssemblyMetadata("ScreenshotURL", "")]
 [assembly: AssemblyMetadata("AltScreenshotURL", "")]
